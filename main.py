@@ -2,7 +2,7 @@
 
 import json
 from pydantic import BaseModel, Field
-from llm_sdk.llm_sdk import Small_LLM_Model
+from llm_sdk.llm_sdk import *
 
 
 class FunctionCalling(BaseModel):
@@ -38,26 +38,36 @@ def main():
     functions = get_function_defenitions("data/input/functions_definition.json")
 
     for func in functions:
-        print(func)
+        print("\nfunction defenitions: ", func)
 
     model = Small_LLM_Model()
-    tokens = model.encode("Hello my name is Di")
-    print("\ntokens:", tokens)
-    print("\ntokens.tolist():", tokens.tolist())
+    prompt = "What is the sum of 2 and 4?"
+    input_ids = model.encode(prompt).tolist()[0]
 
-    # input_ids = model.decode(tokens)
-    # print("\ninput_ids:", input_ids)
-    
-    logits = model.get_logits_from_input_ids(tokens.tolist()[0])
-    print("\nlogits:", logits[:10])
-    print("\nlogits max:", max(logits))
+    print("===============================================")
+    for i in range(11):
+        logits = model.get_logits_from_input_ids(input_ids)
+        next_token_id = logits.index(max(logits))
+        print(next_token_id)
+        input_ids.append(next_token_id)
+        text = model.decode(next_token_id)
+        print(text)
+        print("___")
+    answer = model.decode(input_ids)
+    print(answer)
+    print("===============================================")
 
-    path = model.get_path_to_vocab_file()
-    print("\npath:", path)
 
-    with open(path, "r", encoding="utf-8") as f:
-        vocabulary = f.read()
-    print("\nvocabulary:", vocabulary[:500])
+    # path_vocab = model.get_path_to_vocab_file()
+    # print("\npath_vocab:", path_vocab)
+
+    # with open(path_vocab, "r", encoding="utf-8") as f:
+    #     vocabulary = json.loads(f.read())
+    # print("\nvocabulary len:", len(vocabulary))
+
+    # print("___________________________")
+    # print(vocabulary["Hello"])
+    # print(vocabulary["!"])
 
 
 if __name__ == "__main__":
