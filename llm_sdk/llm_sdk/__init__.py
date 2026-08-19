@@ -124,3 +124,43 @@ class Small_LLM_Model:
             filename=tokenizer_file_name
         )
         return tokenizer_path
+
+
+_DEFAULT_MODEL: Small_LLM_Model | None = None
+
+
+def _get_default_model() -> Small_LLM_Model:
+    global _DEFAULT_MODEL
+    if _DEFAULT_MODEL is None:
+        _DEFAULT_MODEL = Small_LLM_Model()
+    return _DEFAULT_MODEL
+
+
+def encode(text: str) -> torch.Tensor:
+    return _get_default_model().encode(text)
+
+
+def decode(ids: torch.Tensor | list[int]) -> str:
+    return _get_default_model().decode(ids)
+
+
+def get_logits_from_input_ids(input_ids: list[int]) -> list[float]:
+    return _get_default_model().get_logits_from_input_ids(input_ids)
+
+
+def get_path_to_vocabulary_json() -> str:
+    return _get_default_model().get_path_to_vocab_file()
+
+
+def get_path_to_vocab_file() -> str:
+    return _get_default_model().get_path_to_vocab_file()
+
+
+__all__ = [
+    "Small_LLM_Model",
+    "encode",
+    "decode",
+    "get_logits_from_input_ids",
+    "get_path_to_vocabulary_json",
+    "get_path_to_vocab_file",
+]
