@@ -26,9 +26,9 @@ def get_function_defenitions(path: str) -> list[FunctionDefinition]:
         with open(path, "r", encoding="utf-8") as file:
             data = json.load(file)
         functions = [FunctionDefinition.model_validate(item) for item in data]
-    except FileNotFoundError as exc:
+    except FileNotFoundError:
         raise ValueError(f"Function definition file not found: {path}")
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError:
         raise ValueError(f"Invalid JSON in function definition file: {path}")
 
     return functions
@@ -42,13 +42,23 @@ def main():
 
     model = Small_LLM_Model()
     tokens = model.encode("Hello my name is Di")
-    print("tokens:", tokens)
-    input_ids = model.decode(tokens)
-    print("input_ids:", input_ids)
-    logits = model.get_logits_from_input_ids(input_ids)
-    print("logits:", logits)
-    path = model.get_path_to_vocabulary_json()
-    print("path:", path)
+    print("\ntokens:", tokens)
+    print("\ntokens.tolist():", tokens.tolist())
+
+    # input_ids = model.decode(tokens)
+    # print("\ninput_ids:", input_ids)
+    
+    logits = model.get_logits_from_input_ids(tokens.tolist()[0])
+    print("\nlogits:", logits[:10])
+    print("\nlogits max:", max(logits))
+
+    path = model.get_path_to_vocab_file()
+    print("\npath:", path)
+
+    with open(path, "r", encoding="utf-8") as f:
+        vocabulary = f.read()
+    print("\nvocabulary:", vocabulary[:500])
+
 
 if __name__ == "__main__":
     main()
