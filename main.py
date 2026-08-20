@@ -37,6 +37,14 @@ def get_function_defenitions(path: str) -> list[FunctionDefinition]:
 def main():
     functions = get_function_defenitions("data/input/functions_definition.json")
 
+    state = {
+                "location": "parameters",
+                "function": "fn_add_numbers",
+                "completed_parameters": {"a"},
+                "required_parameters": {"a", "b"},
+                "current_value_type": None,
+            }
+
     for func in functions:
         print("\nfunction defenitions: ", func)
 
@@ -56,6 +64,15 @@ def main():
     answer = model.decode(input_ids)
     print(answer)
     print("===============================================")
+
+    for func in functions:
+        print(func.name)
+        input_ids = model.encode(func.name).tolist()[0]
+        for id in input_ids:
+            answer = model.decode(id)
+            print(answer)
+        print("_______________")
+        
 
 
     # path_vocab = model.get_path_to_vocab_file()
