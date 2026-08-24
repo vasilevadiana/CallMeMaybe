@@ -3,6 +3,7 @@
 import json
 from pydantic import BaseModel, Field
 from llm_sdk.llm_sdk import *
+from enum import Enum
 
 
 class FunctionCalling(BaseModel):
@@ -20,6 +21,19 @@ class FunctionDefinition(BaseModel):
     returns: dict[str, str]
 
 
+class DecoderStates(str, Enum):
+    START = "START"
+    OBJECT_OPEN = "OBJECT_OPEN"
+    NAME_KEY = "NAME_KEY"
+    NAME_COLON = "NAME_COLON"
+    NAME_VALUE = "NAME_VALUE"
+    COMPLETE = "COMPLETE"
+
+
+class ConstraintState:
+    state: DecoderStates = DecoderStates.START
+
+
 def get_function_defenitions(path: str) -> list[FunctionDefinition]:
     """Load function definitions from JSON file and validate"""
     try:
@@ -32,6 +46,28 @@ def get_function_defenitions(path: str) -> list[FunctionDefinition]:
         raise ValueError(f"Invalid JSON in function definition file: {path}")
 
     return functions
+
+
+def allowed_tokens(state: ConstraintState, vocabulary: json) -> set[int]:
+    """Return token IDs allowed by the current structural state."""
+
+    if state.state == DecoderStates.START:
+        token_id = vocabulary["{"]
+
+        if token_id is None:
+            raise ValueError("Vocabulary does not contain '{'.")
+
+        return {token_id}
+
+    if state.state == DecoderStates.COMPLETE:
+        token_id = vocabulary["}"]
+
+        if token_id is None:
+            raise ValueError("Vocabulary does not contain '}'.")
+
+        return {token_id}
+
+    return set()
 
 
 def mask_logits(logits: list[int], allowed_token_ids: set[int]) -> list[int]:
@@ -104,5 +140,22 @@ def test_llm():
     print("\nvocabulary len:", len(vocabulary))
     # print(str(vocabulary)[:50])
     print("___________________________")
-    print(vocabulary["Hello"])
-    print(vocabulary["!"])
+    print(vocabulary["Hello"]) #9707
+    print(vocabulary["!"]) #0
+    print(model.decode(9707))
+    print(model.decode(0))
+
+
+    #########################
+    state = ConstraintState()
+
+    allowed = allowed_tokens(state, vocabulary)
+
+    print("Allowed token IDs:", allowed)
+
+    masked = mask_logits(logits, allowed)
+
+    next_token_id = int(masked).index(max(masked))
+
+    print("Selected token ID:", next_token_id)
+    print("Selected token:", repr(vocabulary[next_token_id]))
