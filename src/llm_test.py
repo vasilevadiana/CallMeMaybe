@@ -22,7 +22,6 @@ class FunctionDefinition(BaseModel):
 
 
 class DecoderStates(str, Enum):
-    START = "start"
 
     # OUTPUT JSON:
     # [
@@ -38,29 +37,32 @@ class DecoderStates(str, Enum):
     #     }
     # ]
 
-    # Top-level object
-    EXPECT_OPEN_BRACE = "expect_open_brace"
-    EXPECT_TOP_LEVEL_KEY = "expect_top_level_key"
-    EXPECT_TOP_LEVEL_COLON = "expect_top_level_colon"
+    START = "expect_open_brace"
 
     # "prompt"
-    EXPECT_PROMPT_VALUE = "expect_prompt_value"
+    EXPECT_PROMPT_KEY_OPEN_QUOTE = "\""
+    EXPECT_PROMPT_KEY = "prompt"
+    EXPECT_PROMPT_KEY_CLOSE_QUOTE = "\""
+    EXPECT_PROMPT_COLON = ":"
+    EXPECT_PROMPT_SPACE = " "
+    EXPECT_PROMPT_VALUE_OPEN_QUOTE = "\""
+    EXPECT_PROMPT_VALUE = None
+    EXPECT_PROMPT_VALUE_CLOSE_QUOTE = "\""
+    EXPECT_PROMPT_COMMA = ","
+    
 
     # "name"
+    EXPECT_NAME_KEY = "expect_name_key"
+    EXPECT_NAME_COLON = "expect_name_colon"
     EXPECT_NAME_VALUE = "expect_name_value"
 
     # "parameters"
+    EXPECT_PARAMETERS_KEY = "expect_parameters_key"
+    EXPECT_PARAMETERS_COLON = "expect_parameters_colon"
     EXPECT_PARAMETERS_VALUE = "expect_parameters_value"
 
-    EXPECT_PARAMETER_KEY = "expect_parameter_key"
-    EXPECT_PARAMETER_COLON = "expect_parameter_colon"
-    EXPECT_PARAMETER_VALUE = "expect_parameter_value"
-
     # Finished
-    EXPECT_CLOSE_PARAMETERS = "expect_close_parameters"
-    EXPECT_CLOSE_OBJECT = "expect_close_object"
-
-    COMPLETE = "complete"
+    END = "expect_close_brace"
 
 
     # OPEN_BRACET = "{"
@@ -75,6 +77,7 @@ class DecoderStates(str, Enum):
 
 class ConstraintState:
     state: DecoderStates = DecoderStates.START
+    prompt: str
     generated_text: str = ""
 
     def next(self) -> DecoderStates:
