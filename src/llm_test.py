@@ -22,16 +22,72 @@ class FunctionDefinition(BaseModel):
 
 
 class DecoderStates(str, Enum):
-    START = "START"
-    OBJECT_OPEN = "OBJECT_OPEN"
-    NAME_KEY = "NAME_KEY"
-    NAME_COLON = "NAME_COLON"
-    NAME_VALUE = "NAME_VALUE"
-    COMPLETE = "COMPLETE"
+    START = "start"
+
+    # OUTPUT JSON:
+    # [
+    #     {
+    #     "prompt": "What is the sum of 2 and 3?",
+    #     "name": "fn_add_numbers",
+    #     "parameters": {"a": 2.0, "b": 3.0}
+    #     },
+    #     {
+    #     "prompt": "Reverse the string 'hello'",
+    #     "name": "fn_reverse_string",
+    #     "parameters": {"s": "hello"}
+    #     }
+    # ]
+
+    # Top-level object
+    EXPECT_OPEN_BRACE = "expect_open_brace"
+    EXPECT_TOP_LEVEL_KEY = "expect_top_level_key"
+    EXPECT_TOP_LEVEL_COLON = "expect_top_level_colon"
+
+    # "prompt"
+    EXPECT_PROMPT_VALUE = "expect_prompt_value"
+
+    # "name"
+    EXPECT_NAME_VALUE = "expect_name_value"
+
+    # "parameters"
+    EXPECT_PARAMETERS_VALUE = "expect_parameters_value"
+
+    EXPECT_PARAMETER_KEY = "expect_parameter_key"
+    EXPECT_PARAMETER_COLON = "expect_parameter_colon"
+    EXPECT_PARAMETER_VALUE = "expect_parameter_value"
+
+    # Finished
+    EXPECT_CLOSE_PARAMETERS = "expect_close_parameters"
+    EXPECT_CLOSE_OBJECT = "expect_close_object"
+
+    COMPLETE = "complete"
+
+
+    # OPEN_BRACET = "{"
+    # CLOSE_BRACET = "}"
+    # QUOTE = "\""
+    # COLON = ":"
+    # COMMA = ","
+    # FUNCTION_NAME = ""
+    # PARAMETER_NAME = ""
+    # PARAMETER_TYPE = ""
 
 
 class ConstraintState:
     state: DecoderStates = DecoderStates.START
+    generated_text: str = ""
+
+    def next(self) -> DecoderStates:
+        """Change state to the next in enum declaration order."""
+        states = list(DecoderStates)
+        current_index = states.index(self.state)
+
+        if current_index < len(states) - 1:
+            self.state = states[current_index + 1]
+
+        return self.state
+
+            
 
 
 def get_function_defenitions(path: str) -> list[FunctionDefinition]:
@@ -51,7 +107,7 @@ def get_function_defenitions(path: str) -> list[FunctionDefinition]:
 def allowed_tokens(state: ConstraintState, vocabulary: json) -> set[int]:
     """Return token IDs allowed by the current structural state."""
 
-    if state.state == DecoderStates.START:
+    if state == DecoderStates.START:
         token_id = vocabulary["{"]
 
         if token_id is None:
@@ -59,7 +115,7 @@ def allowed_tokens(state: ConstraintState, vocabulary: json) -> set[int]:
 
         return {token_id}
 
-    if state.state == DecoderStates.COMPLETE:
+    if state == DecoderStates.COMPLETE:
         token_id = vocabulary["}"]
 
         if token_id is None:
@@ -73,30 +129,13 @@ def allowed_tokens(state: ConstraintState, vocabulary: json) -> set[int]:
 def mask_logits(logits: list[int], allowed_token_ids: set[int]) -> list[int]:
     """Mask all tokens that are not allowed."""
 
-    masked_logits = [float("-inf") * len(logits)]
-
-    for token_id in allowed_token_ids:
-        masked_logits[token_id] = logits[token_id]
+    masked_logits = [logits[i] if i in allowed_token_ids else float("-inf") for i in range(len(logits))]
 
     return masked_logits
 
 
 def test_llm():
     functions = get_function_defenitions("data/input/functions_definition.json")
-    
-    # OUTPUT JSON:
-    # [
-    #     {
-    #     "prompt": "What is the sum of 2 and 3?",
-    #     "name": "fn_add_numbers",
-    #     "parameters": {"a": 2.0, "b": 3.0}
-    #     },
-    #     {
-    #     "prompt": "Reverse the string 'hello'",
-    #     "name": "fn_reverse_string",
-    #     "parameters": {"s": "hello"}
-    #     }
-    # ]
 
     for func in functions:
         print("\nfunction defenitions: ", func)
@@ -138,24 +177,30 @@ def test_llm():
     with open(path_vocab, "r", encoding="utf-8") as f:
         vocabulary = json.loads(f.read())
     print("\nvocabulary len:", len(vocabulary))
-    # print(str(vocabulary)[:50])
+    print(str(vocabulary)[:50])
     print("___________________________")
     print(vocabulary["Hello"]) #9707
     print(vocabulary["!"]) #0
+    print(vocabulary["{"]) #90
     print(model.decode(9707))
     print(model.decode(0))
+    print(model.decode(90))
 
 
-    #########################
+
+    print("######################### TEST #################################")
     state = ConstraintState()
+    state = state.next()
+    print(state == DecoderStates.EXPECT_OPEN_BRACE)
 
     allowed = allowed_tokens(state, vocabulary)
-
-    print("Allowed token IDs:", allowed)
-
     masked = mask_logits(logits, allowed)
+    next_token_id = masked.index(max(masked))
 
-    next_token_id = int(masked).index(max(masked))
+    print("allowed token ids:", allowed)
+    print("selected token id:", next_token_id)
+    print("selected token:", repr(model.decode(next_token_id)))
 
-    print("Selected token ID:", next_token_id)
-    print("Selected token:", repr(vocabulary[next_token_id]))
+    state = state.next()
+    print(state == DecoderStates.EXPECT_OPEN_BRACE)
+    
