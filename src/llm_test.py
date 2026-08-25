@@ -78,6 +78,7 @@ class DecoderStates(str, Enum):
 class ConstraintState:
     state: DecoderStates = DecoderStates.START
     prompt: str
+    function_name: str
     generated_text: str = ""
 
     def next(self) -> DecoderStates:
@@ -91,7 +92,6 @@ class ConstraintState:
         return self.state
 
             
-
 
 def get_function_defenitions(path: str) -> list[FunctionDefinition]:
     """Load function definitions from JSON file and validate"""
@@ -118,13 +118,13 @@ def allowed_tokens(state: ConstraintState, vocabulary: json) -> set[int]:
 
         return {token_id}
 
-    if state == DecoderStates.COMPLETE:
-        token_id = vocabulary["}"]
+    # if state == DecoderStates.COMPLETE:
+    #     token_id = vocabulary["}"]
 
-        if token_id is None:
-            raise ValueError("Vocabulary does not contain '}'.")
+    #     if token_id is None:
+    #         raise ValueError("Vocabulary does not contain '}'.")
 
-        return {token_id}
+    #     return {token_id}
 
     return set()
 
@@ -135,6 +135,70 @@ def mask_logits(logits: list[int], allowed_token_ids: set[int]) -> list[int]:
     masked_logits = [logits[i] if i in allowed_token_ids else float("-inf") for i in range(len(logits))]
 
     return masked_logits
+
+
+def matching_functions(prefix: str, functions: list[FunctionDefinition]) -> list[FunctionDefinition]:
+
+    return [function for function in functions if function.name.startswith(prefix)]
+
+
+def is_valid_prefix(prefix: str, function_names: list[str]) -> bool:
+    """
+    Return True if prefix can still become one of the
+    available function names.
+    """
+    # print("function_names:", function_names)
+    # print(function_names[0].name.startswith(prefix))
+    return any(function_name.name.startswith(prefix)for function_name in function_names)
+
+
+def is_complete_function_name(prefix: str, function_names: list[str]) -> bool:
+    """
+    Return True if prefix is exactly one of the
+    available function names.
+    """
+
+    return prefix in function_names
+
+def get_allowed_function_tokens(prefix: str, function_names: list[str], vocabulary: json) -> set[int]:
+    """
+    Find all vocabulary tokens that can be appended to prefix
+    while keeping the result a valid prefix of at least one
+    function name.
+
+    Example:
+
+        functions:
+            fn_greet
+            fn_add_numbers
+            fn_reverse_string
+
+        prefix:
+            fn_
+
+        If vocabulary contains:
+            "g"
+            "a"
+            "r"
+            "x"
+
+        then:
+            g -> allowed
+            a -> allowed
+            r -> allowed
+            x -> forbidden
+    """
+
+    allowed_token_ids: set[int] = set()
+
+    for token_text, token_id in vocabulary.items():
+        # print(token_id, token_text)
+        candidate = prefix + token_text
+
+        if is_valid_prefix(candidate, function_names):
+            allowed_token_ids.add(token_id)
+
+    return allowed_token_ids
 
 
 def test_llm():
@@ -193,8 +257,8 @@ def test_llm():
 
     print("######################### TEST #################################")
     state = ConstraintState()
-    state = state.next()
-    print(state == DecoderStates.EXPECT_OPEN_BRACE)
+    # state = state.next()
+    # print(state == DecoderStates.EXPECT_OPEN_BRACE)
 
     allowed = allowed_tokens(state, vocabulary)
     masked = mask_logits(logits, allowed)
@@ -205,5 +269,28 @@ def test_llm():
     print("selected token:", repr(model.decode(next_token_id)))
 
     state = state.next()
-    print(state == DecoderStates.EXPECT_OPEN_BRACE)
+    # print(state == DecoderStates.EXPECT_OPEN_BRACE)
+
+    print("############# FUNC_NAME TEST #############")
+    allowed = get_allowed_function_tokens("fn_", functions, vocabulary)
+    print("allowed function tokens:", allowed)
+    print("allowed function tokens decoded:", [model.decode(token_id) for token_id in allowed])
+    print("function names:", [func.name for func in functions])
+    masked = mask_logits(logits, allowed)
+    next_token_id = masked.index(max(masked))
+    print("selected token id:", next_token_id)
+    print("selected token:", repr(model.decode(next_token_id)))
+
+    prefix = "fn_"
+    for i in range(20):
+        allowed = get_allowed_function_tokens(prefix, functions, vocabulary)
+        print("allowed function tokens:", allowed)
+        print("allowed function tokens decoded:", [model.decode(token_id) for token_id in allowed])
+        masked = mask_logits(logits, allowed)
+        next_token_id = masked.index(max(masked))
+        print("selected token id:", next_token_id)
+        print("selected token:", repr(model.decode(next_token_id)))
+        prefix += model.decode(next_token_id)
+        print("prefix:", repr(prefix))
+
     
