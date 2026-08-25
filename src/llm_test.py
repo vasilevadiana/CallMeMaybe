@@ -152,13 +152,13 @@ def is_valid_prefix(prefix: str, function_names: list[str]) -> bool:
     return any(function_name.name.startswith(prefix)for function_name in function_names)
 
 
-def is_complete_function_name(prefix: str, function_names: list[str]) -> bool:
+def is_complete_function_name(prefix: str, functions: list[FunctionDefinition]) -> bool:
     """
     Return True if prefix is exactly one of the
     available function names.
     """
 
-    return prefix in function_names
+    return prefix in [func.name for func in functions]
 
 def get_allowed_function_tokens(prefix: str, function_names: list[str], vocabulary: json) -> set[int]:
     """
@@ -271,7 +271,7 @@ def test_llm():
     state = state.next()
     # print(state == DecoderStates.EXPECT_OPEN_BRACE)
 
-    print("############# FUNC_NAME TEST #############")
+    print("############################################## FUNC_NAME TEST #################################################")
     allowed = get_allowed_function_tokens("fn_", functions, vocabulary)
     print("allowed function tokens:", allowed)
     print("allowed function tokens decoded:", [model.decode(token_id) for token_id in allowed])
@@ -281,16 +281,38 @@ def test_llm():
     print("selected token id:", next_token_id)
     print("selected token:", repr(model.decode(next_token_id)))
 
-    prefix = "fn_"
-    for i in range(20):
-        allowed = get_allowed_function_tokens(prefix, functions, vocabulary)
+    max_func_name = max([len(func.name) for func in functions])
+    func_name = "fn_"
+    for i in range(max_func_name):
+        allowed = get_allowed_function_tokens(func_name, functions, vocabulary)
         print("allowed function tokens:", allowed)
         print("allowed function tokens decoded:", [model.decode(token_id) for token_id in allowed])
         masked = mask_logits(logits, allowed)
         next_token_id = masked.index(max(masked))
         print("selected token id:", next_token_id)
         print("selected token:", repr(model.decode(next_token_id)))
-        prefix += model.decode(next_token_id)
-        print("prefix:", repr(prefix))
+        func_name += model.decode(next_token_id)
+        print("prefix:", repr(func_name))
+        if is_complete_function_name(func_name, functions):
+            break
+    
+    for func_def in functions:
+        if func_def.name == func_name:
+            function_defenition = func_def
+    print(function_defenition.name, function_defenition.parameters, function_defenition.description, function_defenition.returns)
+
+    print("############################################## PARAMETERS TEST #################################################")
+    def fill_parameters_values(function_defenition: FunctionDefinition, prompt: str) -> dict[str, str | int]:
+        print("hi")
+        print(function_defenition)
+        parameters = function_defenition.parameters
+        print(function_defenition.parameters)
+        return (parameters)
+
+
+    par = fill_parameters_values(function_defenition, prompt)
+    print(par)
+
+    
 
     
