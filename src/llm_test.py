@@ -78,8 +78,8 @@ class DecoderStates(str, Enum):
 
 class ConstraintState(BaseModel):
     state: DecoderStates = DecoderStates.START
-    prompt: str
-    function_name: str
+    prompt: str = ""
+    function_name: str = ""
     generated_text: str = ""
 
     # def next(self) -> DecoderStates:
@@ -217,101 +217,28 @@ def get_allowed_number_tokens(vocabulary: json) -> set[int]:
     return allowed_token_ids
 
 
-def test_llm():
-    functions = get_function_defenitions("data/input/functions_definition.json")
-
-    for func in functions:
-        print("\nfunction defenitions: ", func)
-
-    model = Small_LLM_Model()
-    prompt = "What is the sum of 2 and 4?"
-    input_ids = model.encode(prompt).tolist()[0]
-
-    print("===============================================")
-    for i in range(11):
-        logits = model.get_logits_from_input_ids(input_ids)
-        
-        # allowed_token_ids = constraint.get_allowed_tokens(...)
-        # logits = mask_logits(logits, allowed_token_ids)
-
-        next_token_id = int(np.argmax(logits))
-        print(next_token_id)
-        input_ids.append(next_token_id)
-        text = model.decode(next_token_id)
-        print(repr(text))
-        print("___")
-    answer = model.decode(input_ids)
-    print(answer)
-    print("===============================================")
-
-    for func in functions:
-        print(func.name)
-        input_ids = model.encode(func.name).tolist()[0]
-        for id in input_ids:
-            answer = model.decode(id)
-            print(answer)
-        print("_______________")
-        
-
-
-    path_vocab = model.get_path_to_vocab_file()
-    print("\npath_vocab:", path_vocab)
-
-    with open(path_vocab, "r", encoding="utf-8") as f:
-        vocabulary = json.loads(f.read())
-    print("\nvocabulary len:", len(vocabulary))
-    print(str(vocabulary)[:50])
-    print("___________________________")
-    print(vocabulary["Hello"]) #9707
-    print(vocabulary["!"]) #0
-    print(vocabulary["{"]) #90
-    print(model.decode(9707))
-    print(model.decode(0))
-    print(model.decode(90))
-
-
-
-    print("######################### TEST #################################")
-    state = ConstraintState()
-    # state = state.next()
-    # print(state == DecoderStates.EXPECT_OPEN_BRACE)
-
-    allowed = allowed_tokens(state, vocabulary)
-    masked = mask_logits(logits, allowed)
-    next_token_id = masked.index(max(masked))
-
-    print("allowed token ids:", allowed)
-    print("selected token id:", next_token_id)
-    print("selected token:", repr(model.decode(next_token_id)))
-
-    state = state.next()
-    # print(state == DecoderStates.EXPECT_OPEN_BRACE)
-
-    print("############################################## FUNC_NAME TEST #################################################")
-    allowed = get_allowed_function_tokens("fn_", functions, vocabulary)
-    print("allowed function tokens:", allowed)
-    print("allowed function tokens decoded:", [model.decode(token_id) for token_id in allowed])
-    print("function names:", [func.name for func in functions])
-    masked = mask_logits(logits, allowed)
-    next_token_id = masked.index(max(masked))
-    print("selected token id:", next_token_id)
-    print("selected token:", repr(model.decode(next_token_id)))
+def get_function_name(model, prompt, functions, vocabulary) -> FunctionDefinition:
+    
+    # logits = model.get_logits_from_input_ids(input_ids)
+    # allowed = get_allowed_function_tokens("fn_", functions, vocabulary)
+    # masked = mask_logits(logits, allowed)
+    # next_token_id = masked.index(max(masked))
+    # print("allowed function tokens:", allowed)
+    # print("allowed function tokens decoded:", [model.decode(token_id) for token_id in allowed])
+    # print("function names:", [func.name for func in functions])
+    # print("selected token id:", next_token_id)
+    # print("selected token:", repr(model.decode(next_token_id)))
 
     max_func_name = max([len(func.name) for func in functions])
-    func_name = "fn_"
+    func_name = "fn_" #TODO not always starts with fn_
+    input_ids = model.encode(prompt).tolist()[0]
     for i in range(max_func_name):
         logits = model.get_logits_from_input_ids(input_ids)
         allowed = get_allowed_function_tokens(func_name, functions, vocabulary)
-        print("allowed function tokens:", allowed)
-        print("allowed function tokens decoded:", [model.decode(token_id) for token_id in allowed])
         masked = mask_logits(logits, allowed)
-        # next_token_id = masked.index(max(masked))
         next_token_id = int(np.argmax(masked))
         input_ids.append(next_token_id)
-        print("selected token id:", next_token_id)
-        print("selected token:", repr(model.decode(next_token_id)))
         func_name += model.decode(next_token_id)
-        print("prefix:", repr(func_name))
         if is_complete_function_name(func_name, functions):
             break
     
@@ -319,25 +246,44 @@ def test_llm():
         if func_def.name == func_name:
             function_defenition = func_def
     print(function_defenition.name, function_defenition.parameters, function_defenition.description, function_defenition.returns)
+    return (function_defenition)
+
+
+def test_llm():
+    print("############################################## FUNC_NAME TEST #################################################")
+    functions = get_function_defenitions("data/input/functions_definition.json")
+    
+    for func in functions:
+        print("\nfunction defenitions: ", func)
+
+    model = Small_LLM_Model()
+    prompt = "What is the sum of 2 and 4?"
+
+    path_vocab = model.get_path_to_vocab_file()
+    with open(path_vocab, "r", encoding="utf-8") as f:
+        vocabulary = json.loads(f.read())
+
+    function_defenition = get_function_name(model, prompt, functions, vocabulary)
+    print(function_defenition)
 
     print("############################################## PARAMETERS TEST #################################################")
-    def fill_parameters_values(function_defenition: FunctionDefinition, prompt: str) -> dict[str, str | int]:
-        print("hi")
-        print(function_defenition)
-        parameters = function_defenition.parameters
-        print(function_defenition.parameters)
-        return (parameters)
 
-
-    par = fill_parameters_values(function_defenition, prompt)
-    print(par)
+    input_ids = model.encode(prompt).tolist()[0]
+    logits = model.get_logits_from_input_ids(input_ids)
     allowed = get_allowed_number_tokens(vocabulary)
     masked = mask_logits(logits, allowed)
     next_token_id = masked.index(max(masked))
+    input_ids.append(next_token_id)
     print("selected token id:", next_token_id)
     print("selected token:", repr(model.decode(next_token_id)))
 
+    logits = model.get_logits_from_input_ids(input_ids)
+    allowed = get_allowed_number_tokens(vocabulary)
+    masked = mask_logits(logits, allowed)
+    next_token_id = masked.index(max(masked))
     input_ids.append(next_token_id)
+    print("selected token id:", next_token_id)
+    print("selected token:", repr(model.decode(next_token_id)))
 
 
     
