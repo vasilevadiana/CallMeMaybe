@@ -4,6 +4,7 @@ import json
 from pydantic import BaseModel, Field
 from llm_sdk.llm_sdk import *
 from enum import Enum
+import numpy as np
 
 
 class FunctionCalling(BaseModel):
@@ -75,21 +76,21 @@ class DecoderStates(str, Enum):
     # PARAMETER_TYPE = ""
 
 
-class ConstraintState:
+class ConstraintState(BaseModel):
     state: DecoderStates = DecoderStates.START
     prompt: str
     function_name: str
     generated_text: str = ""
 
-    def next(self) -> DecoderStates:
-        """Change state to the next in enum declaration order."""
-        states = list(DecoderStates)
-        current_index = states.index(self.state)
+    # def next(self) -> DecoderStates:
+    #     """Change state to the next in enum declaration order."""
+    #     states = list(DecoderStates)
+    #     current_index = states.index(self.state)
 
-        if current_index < len(states) - 1:
-            self.state = states[current_index + 1]
+    #     if current_index < len(states) - 1:
+    #         self.state = states[current_index + 1]
 
-        return self.state
+    #     return self.state
 
             
 
@@ -110,7 +111,7 @@ def get_function_defenitions(path: str) -> list[FunctionDefinition]:
 def allowed_tokens(state: ConstraintState, vocabulary: json) -> set[int]:
     """Return token IDs allowed by the current structural state."""
 
-    if state == DecoderStates.START:
+    if state.state == DecoderStates.START:
         token_id = vocabulary["{"]
 
         if token_id is None:
@@ -160,6 +161,7 @@ def is_complete_function_name(prefix: str, functions: list[FunctionDefinition]) 
 
     return prefix in [func.name for func in functions]
 
+
 def get_allowed_function_tokens(prefix: str, function_names: list[str], vocabulary: json) -> set[int]:
     """
     Find all vocabulary tokens that can be appended to prefix
@@ -201,6 +203,20 @@ def get_allowed_function_tokens(prefix: str, function_names: list[str], vocabula
     return allowed_token_ids
 
 
+def get_allowed_number_tokens(vocabulary: json) -> set[int]:
+    """
+    Find all vocabulary tokens that are numbers (0-9).
+    """
+
+    allowed_token_ids: set[int] = set()
+
+    for token_text, token_id in vocabulary.items():
+        if token_text.isdigit(): ### TODO handle negative parameters and decimal numbers
+            allowed_token_ids.add(token_id)
+
+    return allowed_token_ids
+
+
 def test_llm():
     functions = get_function_defenitions("data/input/functions_definition.json")
 
@@ -218,7 +234,7 @@ def test_llm():
         # allowed_token_ids = constraint.get_allowed_tokens(...)
         # logits = mask_logits(logits, allowed_token_ids)
 
-        next_token_id = logits.index(max(logits))
+        next_token_id = int(np.argmax(logits))
         print(next_token_id)
         input_ids.append(next_token_id)
         text = model.decode(next_token_id)
@@ -284,11 +300,14 @@ def test_llm():
     max_func_name = max([len(func.name) for func in functions])
     func_name = "fn_"
     for i in range(max_func_name):
+        logits = model.get_logits_from_input_ids(input_ids)
         allowed = get_allowed_function_tokens(func_name, functions, vocabulary)
         print("allowed function tokens:", allowed)
         print("allowed function tokens decoded:", [model.decode(token_id) for token_id in allowed])
         masked = mask_logits(logits, allowed)
-        next_token_id = masked.index(max(masked))
+        # next_token_id = masked.index(max(masked))
+        next_token_id = int(np.argmax(masked))
+        input_ids.append(next_token_id)
         print("selected token id:", next_token_id)
         print("selected token:", repr(model.decode(next_token_id)))
         func_name += model.decode(next_token_id)
@@ -312,6 +331,14 @@ def test_llm():
 
     par = fill_parameters_values(function_defenition, prompt)
     print(par)
+    allowed = get_allowed_number_tokens(vocabulary)
+    masked = mask_logits(logits, allowed)
+    next_token_id = masked.index(max(masked))
+    print("selected token id:", next_token_id)
+    print("selected token:", repr(model.decode(next_token_id)))
+
+    input_ids.append(next_token_id)
+
 
     
 
