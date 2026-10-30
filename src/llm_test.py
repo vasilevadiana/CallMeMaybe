@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from llm_sdk.llm_sdk import *
 from enum import Enum
 import numpy as np
+import re
 
 
 class FunctionCalling(BaseModel):
@@ -150,7 +151,7 @@ def is_valid_prefix(prefix: str, function_names: list[str]) -> bool:
     """
     # print("function_names:", function_names)
     # print(function_names[0].name.startswith(prefix))
-    return any(function_name.name.startswith(prefix)for function_name in function_names)
+    return any(function_name.name.startswith(prefix) for function_name in function_names)
 
 
 def is_complete_function_name(prefix: str, functions: list[FunctionDefinition]) -> bool:
@@ -198,6 +199,7 @@ def get_allowed_function_tokens(prefix: str, function_names: list[str], vocabula
         candidate = prefix + token_text
 
         if is_valid_prefix(candidate, function_names):
+            print("allowed token:", token_text)
             allowed_token_ids.add(token_id)
 
     return allowed_token_ids
@@ -218,16 +220,6 @@ def get_allowed_number_tokens(vocabulary: json) -> set[int]:
 
 
 def get_function_name(model, prompt, functions, vocabulary) -> FunctionDefinition:
-    
-    # logits = model.get_logits_from_input_ids(input_ids)
-    # allowed = get_allowed_function_tokens("fn_", functions, vocabulary)
-    # masked = mask_logits(logits, allowed)
-    # next_token_id = masked.index(max(masked))
-    # print("allowed function tokens:", allowed)
-    # print("allowed function tokens decoded:", [model.decode(token_id) for token_id in allowed])
-    # print("function names:", [func.name for func in functions])
-    # print("selected token id:", next_token_id)
-    # print("selected token:", repr(model.decode(next_token_id)))
 
     max_func_name = max([len(func.name) for func in functions])
     func_name = "fn_" #TODO not always starts with fn_
@@ -249,6 +241,69 @@ def get_function_name(model, prompt, functions, vocabulary) -> FunctionDefinitio
     return (function_defenition)
 
 
+def get_allowed_tokens_for_type(prefix, param_type, vocabulary):
+    allowed = set()
+
+    for token_text, token_id in vocabulary.items():
+        candidate = prefix + token_text
+
+        if param_type == "number":
+            if candidate.replace(".", "", 1).replace("-", "", 1).isdigit():
+                allowed.add(token_id)
+
+        elif param_type == "string":
+            if candidate.startswith('"') or candidate.isalpha() or candidate in [" ", "_", "-", "."]:
+                allowed.add(token_id)
+
+    return allowed
+
+
+def is_complete_value(value: str, param_type: str) -> bool:
+    if param_type == "number":
+        try:
+            float(value)
+            return True
+        except ValueError:
+            return False
+    if param_type == "string":
+        return value.startswith('"') and value.endswith('"')
+    return True
+
+
+def cast_value(value: str, param_type: str):
+    if param_type == "number":
+        return float(value)
+    if param_type == "string":
+        return value.strip('"')
+    return value
+
+
+def generate_parameters_from_prompt(prompt: str, func):
+    values = {}
+
+    for param_name, param_spec in func.parameters.items():
+        if param_spec.type == "number":
+            numbers = re.findall(r"-?\d+(?:\.\d+)?", prompt)
+            if not numbers:
+                values[param_name] = 0.0
+            else:
+                values[param_name] = float(numbers.pop(0))
+        elif param_spec.type == "string":
+            values[param_name] = "" # TODO: use llm to extract string values from prompt
+    return values
+
+
+def generate_parameters(model, prompt, func, vocabulary):
+    parameters = {}
+
+    for param_name, param_spec in func.parameters.items():
+        param_type = param_spec.type
+        value = generate_parameters_from_prompt(prompt, func).get(param_name, "")
+        parameters[param_name] = value
+
+    return parameters
+
+
 def test_llm():
     print("############################################## FUNC_NAME TEST #################################################")
     functions = get_function_defenitions("data/input/functions_definition.json")
@@ -258,6 +313,9 @@ def test_llm():
 
     model = Small_LLM_Model()
     prompt = "What is the sum of 2 and 4?"
+    # prompt = "What is the square root of 16?"
+    # prompt = "reverse the string 'hello'"
+    prompt = "Greet John"
 
     path_vocab = model.get_path_to_vocab_file()
     with open(path_vocab, "r", encoding="utf-8") as f:
@@ -268,22 +326,8 @@ def test_llm():
 
     print("############################################## PARAMETERS TEST #################################################")
 
-    input_ids = model.encode(prompt).tolist()[0]
-    logits = model.get_logits_from_input_ids(input_ids)
-    allowed = get_allowed_number_tokens(vocabulary)
-    masked = mask_logits(logits, allowed)
-    next_token_id = masked.index(max(masked))
-    input_ids.append(next_token_id)
-    print("selected token id:", next_token_id)
-    print("selected token:", repr(model.decode(next_token_id)))
-
-    logits = model.get_logits_from_input_ids(input_ids)
-    allowed = get_allowed_number_tokens(vocabulary)
-    masked = mask_logits(logits, allowed)
-    next_token_id = masked.index(max(masked))
-    input_ids.append(next_token_id)
-    print("selected token id:", next_token_id)
-    print("selected token:", repr(model.decode(next_token_id)))
+    params = generate_parameters(model, prompt, function_defenition, vocabulary)
+    print("Extracted parameters:", params)
 
 
     
