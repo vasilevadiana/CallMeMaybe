@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import json
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from llm_sdk.llm_sdk import *
 from enum import Enum
 import numpy as np
@@ -37,13 +37,18 @@ def get_function_defenitions(path: str) -> list[FunctionDefinition]:
     try:
         with open(path, "r", encoding="utf-8") as file:
             data = json.load(file)
-        functions = [FunctionDefinition.model_validate(item) for item in data]
     except FileNotFoundError:
         raise ValueError(f"Function definition file not found: {path}")
     except json.JSONDecodeError:
         raise ValueError(f"Invalid JSON in function definition file: {path}")
-
-    return functions
+    except OSError as exc:
+        raise ValueError(f"Cannot read {path}: {exc}")
+    if not isinstance(data, list):
+        raise ValueError(f"{path} must contain a JSON array.")
+    try:
+        return [FunctionDefinition.model_validate(item) for item in data]
+    except ValidationError as exc:
+        raise ValueError(f"Invalid function definition in {path}: {exc}")
 
 
 def get_function_calling_tests(path: str) -> list[FunctionCalling]:
@@ -51,13 +56,18 @@ def get_function_calling_tests(path: str) -> list[FunctionCalling]:
     try:
         with open(path, "r", encoding="utf-8") as file:
             data = json.load(file)
-        promts = [FunctionCalling.model_validate(item) for item in data]
     except FileNotFoundError:
-        raise ValueError(f"Function definition file not found: {path}")
+        raise ValueError(f"Function calling tests file not found: {path}")
     except json.JSONDecodeError:
-        raise ValueError(f"Invalid JSON in function definition file: {path}")
-
-    return promts
+        raise ValueError(f"Invalid JSON in function calling tests file: {path}")
+    except OSError as exc:
+        raise ValueError(f"Cannot read {path}: {exc}")
+    if not isinstance(data, list):
+        raise ValueError(f"{path} must contain a JSON array.")
+    try:
+        return [FunctionCalling.model_validate(item) for item in data]
+    except ValidationError as exc:
+        raise ValueError(f"Invalid prompt entry in {path}: {exc}")
 
 
 def decode_vocabulary(model: Small_LLM_Model,
@@ -81,18 +91,3 @@ def test_llm():
     with open(model.get_path_to_vocab_file(), encoding="utf-8") as f:
         vocabulary = json.load(f)
 
-    id_to_text = decode_vocabulary(model, vocabulary)
-    print(repr(id_to_text[vocabulary["Ġthe"]]))   # expect ' the'
-    print(repr(id_to_text[vocabulary["Ċ"]]))      # expect '\n'
-    print(repr(id_to_text[vocabulary["Ġ,"]]))   # expect ' ,'
-    print(repr(id_to_text[vocabulary["Ġ."]]))   # expect ' .'
-    print(len(id_to_text), "of", len(vocabulary), "tokens kept")
-
-    dropped = [t for t, i in vocabulary.items() if i not in id_to_text]
-    print(dropped[:10])
-
-
-
-    
-
-    
