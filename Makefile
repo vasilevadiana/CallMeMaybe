@@ -1,3 +1,11 @@
+GOINFRE := /goinfre/$(USER)
+
+export UV_CACHE_DIR := $(GOINFRE)/.cache/uv
+export UV_PROJECT_ENVIRONMENT := $(GOINFRE)/.venvs/callmemaybe
+export HF_HOME := $(GOINFRE)/.cache/huggingface
+export TMPDIR := $(GOINFRE)/tmp
+$(shell mkdir -p $(TMPDIR))
+
 .PHONY: install run debug clean lint lint-strict
 
 install:
