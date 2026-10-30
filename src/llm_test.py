@@ -81,6 +81,55 @@ def decode_vocabulary(model: Small_LLM_Model,
     return id_to_text
 
 
+def build_function_prompt(initial_prompt: str,
+                          functions: list[FunctionDefinition]) -> str:
+    """Qwen chat prompt that ends where the function name begins."""
+    
+    NAME_PREFIX = '{"name": "'
+
+    catalog = "\n".join(
+        json.dumps({
+            "name": f.name,
+            "description": f.description,
+            "parameters": {n: p.type for n, p in f.parameters.items()},
+        })
+        for f in functions
+    )
+    system = (
+        "You are a function calling assistant. Choose the single function "
+        "that best fulfils the user request, then fill its parameters. "
+        "Copy string values exactly as written in the request, without "
+        "surrounding quotes. Write numbers as digits. "
+        'Answer only with JSON: {"name": ..., "parameters": {...}}.'
+        "\n\nAvailable functions:\n" + catalog
+    )
+    return (
+        f"<|im_start|>system\n{system}<|im_end|>\n"
+        f"<|im_start|>user\n{initial_prompt}<|im_end|>\n"
+        "<|im_start|>assistant\n<think>\n\n</think>\n\n" + NAME_PREFIX
+    )
+
+
+def get_function_name(model: Small_LLM_Model, 
+                      input_ids: list[int],
+                      functions: list[FunctionDefinition],
+                      id_to_text: dict[int, str]) -> FunctionDefinition:
+    """The LLM chooses the function; output is forced to a real name."""
+    names = [f.name for f in functions]
+    prefix = ""
+    for _ in range(max(len(n) for n in names) + 1):
+        longer = any(n != prefix and n.startswith(prefix) for n in names)
+        if prefix in names and not longer:
+            break
+        logits = model.get_logits_from_input_ids(input_ids)
+        token_id = int(np.argmax(logits))
+        input_ids.append(token_id)
+        prefix += id_to_text[token_id]
+    for function in functions:
+        if function.name == prefix:
+            return function
+
+
 def test_llm():
     print("############################################## FUNC_NAME TEST #################################################")
     functions = get_function_defenitions("data/input/functions_definition.json")
@@ -91,3 +140,13 @@ def test_llm():
     with open(model.get_path_to_vocab_file(), encoding="utf-8") as f:
         vocabulary = json.load(f)
 
+    id_to_text = decode_vocabulary(model, vocabulary)
+
+    print(len(model.encode("<|im_start|>")[0]))
+    prompt = prompts[0]
+    function_prompt = build_function_prompt(prompt, functions)
+    print(function_prompt)
+    input_ids = model.encode(function_prompt)[0].tolist()
+    function = get_function_name(model, input_ids, functions, id_to_text)
+    print(input_ids)
+    print(function)
