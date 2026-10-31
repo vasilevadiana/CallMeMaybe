@@ -81,6 +81,15 @@ def decode_vocabulary(model: Small_LLM_Model,
     return id_to_text
 
 
+def get_text_to_ids(id_to_text):
+    text_to_ids: dict[str, list[int]] = {}
+    for token_id, text in id_to_text.items():
+        if text not in text_to_ids:
+            text_to_ids[text] = []
+        text_to_ids[text].append(token_id)
+    return text_to_ids
+
+
 def build_function_prompt(initial_prompt: str,
                           functions: list[FunctionDefinition]) -> str:
     """Qwen chat prompt that ends where the function name begins."""
@@ -110,10 +119,31 @@ def build_function_prompt(initial_prompt: str,
     )
 
 
+def allowed_choice_tokens(prefix, choices, text_to_ids):
+    allowed: set[int] = set()
+    for choice in choices:
+        if choice.startswith(prefix):
+            rest = choice[len(prefix):]
+            for end in range(1, len(rest) + 1):
+                allowed.update(text_to_ids.get(rest[:end], []))
+    return allowed
+
+
+def choose_token(logits: list[float], allowed: set[int]) -> int:
+    ids = np.array(list(allowed), dtype=np.int64)
+    ids = ids[(ids >= 0) & (ids < len(logits))]
+    if ids.size == 0:
+        raise ValueError("No valid token is available.")
+    scores = np.full(len(logits), -np.inf)
+    scores[ids] = np.asarray(logits)[ids]
+    return int(np.argmax(scores))
+
+
 def get_function_name(model: Small_LLM_Model, 
                       input_ids: list[int],
                       functions: list[FunctionDefinition],
-                      id_to_text: dict[int, str]) -> FunctionDefinition:
+                      id_to_text: dict[int, str],
+                      text_to_ids) -> FunctionDefinition:
     """The LLM chooses the function; output is forced to a real name."""
     names = [f.name for f in functions]
     prefix = ""
@@ -121,8 +151,9 @@ def get_function_name(model: Small_LLM_Model,
         longer = any(n != prefix and n.startswith(prefix) for n in names)
         if prefix in names and not longer:
             break
+        allowed = allowed_choice_tokens(prefix, names, text_to_ids)
         logits = model.get_logits_from_input_ids(input_ids)
-        token_id = int(np.argmax(logits))
+        token_id = choose_token(logits, allowed)
         input_ids.append(token_id)
         prefix += id_to_text[token_id]
     for function in functions:
@@ -141,12 +172,13 @@ def test_llm():
         vocabulary = json.load(f)
 
     id_to_text = decode_vocabulary(model, vocabulary)
+    text_to_ids = get_text_to_ids(id_to_text)
 
     print(len(model.encode("<|im_start|>")[0]))
     prompt = prompts[0]
     function_prompt = build_function_prompt(prompt, functions)
     print(function_prompt)
     input_ids = model.encode(function_prompt)[0].tolist()
-    function = get_function_name(model, input_ids, functions, id_to_text)
+    function = get_function_name(model, input_ids, functions, id_to_text, text_to_ids)
     print(input_ids)
     print(function)
