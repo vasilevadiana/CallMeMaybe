@@ -90,32 +90,17 @@ def get_text_to_ids(id_to_text):
     return text_to_ids
 
 
-def build_function_prompt(initial_prompt: str,
-                          functions: list[FunctionDefinition]) -> str:
-    """Qwen chat prompt that ends where the function name begins."""
-    
-    NAME_PREFIX = '{"name": "'
-
+def build_function_context(prompt: str,
+                           functions: list[FunctionDefinition]) -> str:
     catalog = "\n".join(
-        json.dumps({
-            "name": f.name,
-            "description": f.description,
-            "parameters": {n: p.type for n, p in f.parameters.items()},
-        })
+        json.dumps({"name": f.name, "description": f.description})
         for f in functions
     )
-    system = (
-        "You are a function calling assistant. Choose the single function "
-        "that best fulfils the user request, then fill its parameters. "
-        "Copy string values exactly as written in the request, without "
-        "surrounding quotes. Write numbers as digits. "
-        'Answer only with JSON: {"name": ..., "parameters": {...}}.'
-        "\n\nAvailable functions:\n" + catalog
-    )
     return (
-        f"<|im_start|>system\n{system}<|im_end|>\n"
-        f"<|im_start|>user\n{initial_prompt}<|im_end|>\n"
-        "<|im_start|>assistant\n<think>\n\n</think>\n\n" + NAME_PREFIX
+        "Choose exactly one function from the list.\n\n"
+        f"Available functions:\n{catalog}\n\n"
+        f"User request: {prompt}\n\n"
+        "Name of the correct function:\n"
     )
 
 
@@ -144,11 +129,13 @@ def get_function_name(model: Small_LLM_Model,
                       functions: list[FunctionDefinition],
                       id_to_text: dict[int, str],
                       text_to_ids) -> FunctionDefinition:
-    """The LLM chooses the function; output is forced to a real name."""
+    """LLM chooses the function"""
     names = [f.name for f in functions]
+    max_name_len = max(len(name) for name in names)
     prefix = ""
-    for _ in range(max(len(n) for n in names) + 1):
-        longer = any(n != prefix and n.startswith(prefix) for n in names)
+    for _ in range(max_name_len + 1):
+        # if 
+        longer = any(name != prefix and name.startswith(prefix) for name in names)
         if prefix in names and not longer:
             break
         allowed = allowed_choice_tokens(prefix, names, text_to_ids)
@@ -156,6 +143,7 @@ def get_function_name(model: Small_LLM_Model,
         token_id = choose_token(logits, allowed)
         input_ids.append(token_id)
         prefix += id_to_text[token_id]
+        print(prefix)
     for function in functions:
         if function.name == prefix:
             return function
@@ -176,9 +164,9 @@ def test_llm():
 
     print(len(model.encode("<|im_start|>")[0]))
     prompt = prompts[0]
-    function_prompt = build_function_prompt(prompt, functions)
-    print(function_prompt)
-    input_ids = model.encode(function_prompt)[0].tolist()
+    context_to_get_function = build_function_context(prompt, functions)
+    print(context_to_get_function)
+    input_ids = model.encode(context_to_get_function)[0].tolist()
     function = get_function_name(model, input_ids, functions, id_to_text, text_to_ids)
     print(input_ids)
     print(function)
