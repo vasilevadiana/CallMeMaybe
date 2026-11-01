@@ -93,7 +93,9 @@ def get_text_to_ids(id_to_text):
 def build_function_context(prompt: str,
                            functions: list[FunctionDefinition]) -> str:
     catalog = "\n".join(
-        json.dumps({"name": f.name, "description": f.description})
+        json.dumps({"name": f.name, 
+                    "description": f.description,
+                    "parameters": {n: p.type for n, p in f.parameters.items()}})
         for f in functions
     )
     return (
@@ -122,8 +124,9 @@ def choose_token(logits: list[float], allowed: set[int], id_to_text) -> int:
     scores = np.full(len(logits), -np.inf)
     scores[ids] = np.asarray(logits)[ids]
     # test_________________________________________________________________
-    for token_id in np.where(scores > 0)[0]:
-        print(repr(id_to_text[int(token_id)]), scores[token_id])
+    best = ids[np.argsort(scores[ids])[::-1][:5]]
+    # for token_id in best:
+        # print(repr(id_to_text[int(token_id)]), round(scores[token_id], 2))
     return int(np.argmax(scores))
 
 
@@ -146,12 +149,35 @@ def get_function_name(model: Small_LLM_Model,
         token_id = choose_token(logits, allowed, id_to_text)
         input_ids.append(token_id)
         prefix += id_to_text[token_id]
-        print(prefix)
-        print("_______________")
+        # print(prefix)
+        # print("_______________")
     for function in functions:
         if function.name == prefix:
             return function
     raise ValueError(f"Model produced an invalid function name: {prefix!r}")
+
+
+def extract_string_param():
+    return "lalala string"
+
+
+def extract_numeric_param():
+    return 42
+
+
+def get_parameters(function: FunctionDefinition,
+                   model: Small_LLM_Model,
+                   input_ids: list[int],
+                   functions: list[FunctionDefinition],
+                    id_to_text: dict[int, str],
+                    text_to_ids):
+    params = {}
+    for name, param_defenition in function.parameters.items():
+        if param_defenition.type == "string":
+            params[name] = extract_string_param()
+        if param_defenition.type == "number":
+            params[name] = extract_numeric_param()
+    return params
 
 
 def test_llm():
@@ -167,21 +193,16 @@ def test_llm():
     id_to_text = decode_vocabulary(model, vocabulary)
     text_to_ids = get_text_to_ids(id_to_text)
 
-    # print(len(model.encode("<|im_start|>")[0]))
-    # prompt = prompts[0]
-    # context_to_get_function = build_function_context(prompt, functions)
-    # print(context_to_get_function)
-    # input_ids = model.encode(context_to_get_function)[0].tolist()
-    # function = get_function_name(model, input_ids, functions, id_to_text, text_to_ids)
-    # print(input_ids)
-    # print(function)
-
     for prompt in prompts:
-        print(f"{prompt.prompt}")
-        print("_______________")
+        # print(f"{prompt.prompt}")
+        # print("_______________")
         context = build_function_context(prompt.prompt, functions)
         input_ids = model.encode(context)[0].tolist()
         function = get_function_name(model, input_ids, functions,
                                     id_to_text, text_to_ids)
         print(f"{prompt.prompt} -> {function.name}")
+        input_ids += model.encode("\nParameters as JSON:\n{")[0].tolist()
+        params = get_parameters(function, model, input_ids, functions,
+                                    id_to_text, text_to_ids)
+        print(params)
         print("######################################################################################")
