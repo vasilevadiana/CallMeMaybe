@@ -114,13 +114,16 @@ def allowed_choice_tokens(prefix, choices, text_to_ids):
     return allowed
 
 
-def choose_token(logits: list[float], allowed: set[int]) -> int:
+def choose_token(logits: list[float], allowed: set[int], id_to_text) -> int:
     ids = np.array(list(allowed), dtype=np.int64)
     ids = ids[(ids >= 0) & (ids < len(logits))]
     if ids.size == 0:
         raise ValueError("No valid token is available.")
     scores = np.full(len(logits), -np.inf)
     scores[ids] = np.asarray(logits)[ids]
+    # test_________________________________________________________________
+    for token_id in np.where(scores > 0)[0]:
+        print(repr(id_to_text[int(token_id)]), scores[token_id])
     return int(np.argmax(scores))
 
 
@@ -134,19 +137,21 @@ def get_function_name(model: Small_LLM_Model,
     max_name_len = max(len(name) for name in names)
     prefix = ""
     for _ in range(max_name_len + 1):
-        # if 
+        # if what llm generated is a complete funcname and no other name starts with it
         longer = any(name != prefix and name.startswith(prefix) for name in names)
         if prefix in names and not longer:
             break
         allowed = allowed_choice_tokens(prefix, names, text_to_ids)
         logits = model.get_logits_from_input_ids(input_ids)
-        token_id = choose_token(logits, allowed)
+        token_id = choose_token(logits, allowed, id_to_text)
         input_ids.append(token_id)
         prefix += id_to_text[token_id]
         print(prefix)
+        print("_______________")
     for function in functions:
         if function.name == prefix:
             return function
+    raise ValueError(f"Model produced an invalid function name: {prefix!r}")
 
 
 def test_llm():
@@ -162,11 +167,21 @@ def test_llm():
     id_to_text = decode_vocabulary(model, vocabulary)
     text_to_ids = get_text_to_ids(id_to_text)
 
-    print(len(model.encode("<|im_start|>")[0]))
-    prompt = prompts[0]
-    context_to_get_function = build_function_context(prompt, functions)
-    print(context_to_get_function)
-    input_ids = model.encode(context_to_get_function)[0].tolist()
-    function = get_function_name(model, input_ids, functions, id_to_text, text_to_ids)
-    print(input_ids)
-    print(function)
+    # print(len(model.encode("<|im_start|>")[0]))
+    # prompt = prompts[0]
+    # context_to_get_function = build_function_context(prompt, functions)
+    # print(context_to_get_function)
+    # input_ids = model.encode(context_to_get_function)[0].tolist()
+    # function = get_function_name(model, input_ids, functions, id_to_text, text_to_ids)
+    # print(input_ids)
+    # print(function)
+
+    for prompt in prompts:
+        print(f"{prompt.prompt}")
+        print("_______________")
+        context = build_function_context(prompt.prompt, functions)
+        input_ids = model.encode(context)[0].tolist()
+        function = get_function_name(model, input_ids, functions,
+                                    id_to_text, text_to_ids)
+        print(f"{prompt.prompt} -> {function.name}")
+        print("######################################################################################")
