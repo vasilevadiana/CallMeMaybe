@@ -97,8 +97,8 @@ def get_number_ids(id_to_text: dict[int, str]) -> set[int]:
 
 
 def get_string_ids(id_to_text: dict[int, str]) -> set[int]:
-    """Tokens that can be part of a string value (no newline)."""
-    return {i for i, t in id_to_text.items() if "\n" not in t}
+    """Tokens that can be part of a string value (no quote, backslash, newline)."""
+    return {i for i, t in id_to_text.items() if not any(c in t for c in '\n')}
 
 
 def build_function_context(prompt: str,
@@ -148,23 +148,21 @@ def get_function_name(model: Small_LLM_Model,
                       id_to_text: dict[int, str],
                       text_to_ids) -> FunctionDefinition:
     """LLM chooses the function"""
-    names = [f.name for f in functions]
+    if not functions:
+        raise ValueError("No functions available.")
+    names = [f.name + '"' for f in functions]
     max_name_len = max(len(name) for name in names)
     prefix = ""
     for _ in range(max_name_len):
-        # if what llm generated is a complete funcname and no other name starts with it
-        longer = any(name != prefix and name.startswith(prefix) for name in names)
-        if prefix in names and not longer:
+        if prefix in names:
             break
         allowed = allowed_choice_tokens(prefix, names, text_to_ids)
         logits = model.get_logits_from_input_ids(input_ids)
         token_id = choose_token(logits, allowed, id_to_text)
         input_ids.append(token_id)
         prefix += id_to_text[token_id]
-        # print(prefix)
-        # print("_______________")
     for function in functions:
-        if function.name == prefix:
+        if function.name + '"' == prefix:
             return function
     raise ValueError(f"Model produced an invalid function name: {prefix}")
 
@@ -189,14 +187,14 @@ def extract_numeric_param(prompt, model, input_ids, id_to_text, text_to_ids, num
     return float(number)
 
 
-def extract_string_param(function, model, input_ids, id_to_text, text_to_ids, string_ids, quote_end_ids):
+def extract_string_param(function, model, input_ids, id_to_text, text_to_ids, string_ids, string_end_ids):
     """ """
-    allowed = string_ids
+    allowed = string_ids | string_end_ids
     text = ""
     for _ in range(100):
         logits = model.get_logits_from_input_ids(input_ids)
         token_id = choose_token(logits, allowed, id_to_text)
-        if token_id in quote_end_ids:
+        if token_id in string_end_ids:
             break
         input_ids.append(token_id)
         text += id_to_text[token_id]
@@ -214,13 +212,15 @@ def get_parameters(function: FunctionDefinition,
                    string_end_ids,
                    number_end_ids):
     params = {}
-    for name, param_defenition in function.parameters.items():
+    for index, (name, param_defenition) in enumerate(function.parameters.items()):
+        separator = "" if index == 0 else ", "
+        key = f"{separator}{json.dumps(name)}: "
         if param_defenition.type == "string":
-            input_ids += model.encode(f"{name}: ")[0].tolist()
+            input_ids += model.encode(key + '"')[0].tolist()
             params[name] = extract_string_param(function, model, input_ids, id_to_text, text_to_ids, string_ids, string_end_ids)
             input_ids += model.encode('"')[0].tolist()
-        if param_defenition.type == "number":
-            input_ids += model.encode(f"{name}: ")[0].tolist()
+        elif param_defenition.type == "number":
+            input_ids += model.encode(key)[0].tolist()
             params[name] = extract_numeric_param(prompt, model, input_ids, id_to_text, text_to_ids, number_ids, number_end_ids)
         # print("__________")
     return params
