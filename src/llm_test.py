@@ -96,6 +96,11 @@ def get_number_ids(id_to_text: dict[int, str]) -> set[int]:
                 if all(c in "0123456789.-" for c in t)}
 
 
+def get_string_ids(id_to_text: dict[int, str]) -> set[int]:
+    """Tokens that can be part of a string value (no newline)."""
+    return {i for i, t in id_to_text.items() if "\n" not in t}
+
+
 def build_function_context(prompt: str,
                            functions: list[FunctionDefinition]) -> str:
     catalog = "\n".join(
@@ -163,18 +168,14 @@ def get_function_name(model: Small_LLM_Model,
     raise ValueError(f"Model produced an invalid function name: {prefix}")
 
 
-def extract_string_param(function, model, input_ids, id_to_text, text_to_ids):
-    return "lalala string"
-
-
 def extract_numeric_param(prompt, model, input_ids, id_to_text, text_to_ids, number_ids):
     """ """
     numbers = re.findall(r"-?\d+(?:\.\d+)?", prompt)
     max_number_len = max([len(match) for match in numbers])
+    allowed = number_ids
     number = ""
     for _ in range(max_number_len):
         logits = model.get_logits_from_input_ids(input_ids)
-        allowed = number_ids
         token_id = choose_token(logits, allowed, id_to_text)
         input_ids.append(token_id)
         number += id_to_text[token_id]
@@ -183,17 +184,31 @@ def extract_numeric_param(prompt, model, input_ids, id_to_text, text_to_ids, num
     return number
 
 
+def extract_string_param(function, model, input_ids, id_to_text, text_to_ids, string_ids):
+    """ """
+    allowed = string_ids
+    text = ""
+    for _ in range(5):
+        logits = model.get_logits_from_input_ids(input_ids)
+        token_id = choose_token(logits, allowed, id_to_text)
+        input_ids.append(token_id)
+        text += id_to_text[token_id]
+    return text
+
+
 def get_parameters(function: FunctionDefinition,
                    model: Small_LLM_Model,
                    input_ids: list[int],
                    id_to_text: dict[int, str],
                    text_to_ids,
                    number_ids,
+                   string_ids,
                    prompt):
     params = {}
     for name, param_defenition in function.parameters.items():
         if param_defenition.type == "string":
-            params[name] = extract_string_param(function, model, input_ids, id_to_text, text_to_ids)
+            input_ids += model.encode(f"{name}: ")[0].tolist()
+            params[name] = extract_string_param(function, model, input_ids, id_to_text, text_to_ids, string_ids)
         if param_defenition.type == "number":
             input_ids += model.encode(f"{name}: ")[0].tolist()
             params[name] = extract_numeric_param(prompt, model, input_ids, id_to_text, text_to_ids, number_ids)
@@ -214,6 +229,7 @@ def test_llm():
     id_to_text = decode_vocabulary(model, vocabulary)
     text_to_ids = get_text_to_ids(id_to_text)
     number_ids = get_number_ids(id_to_text)
+    string_ids = get_string_ids(id_to_text)
 
     for prompt in prompts:
         # print(f"{prompt.prompt}")
@@ -224,6 +240,6 @@ def test_llm():
                                     id_to_text, text_to_ids)
         print(f"{prompt.prompt} -> {function.name}")
         input_ids += model.encode("\nParameters:\n")[0].tolist()
-        params = get_parameters(function, model, input_ids, id_to_text, text_to_ids, number_ids, prompt.prompt)
+        params = get_parameters(function, model, input_ids, id_to_text, text_to_ids, number_ids, string_ids, prompt.prompt)
         print(params)
         print("___________________________________________________________________")
