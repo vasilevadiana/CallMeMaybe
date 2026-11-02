@@ -109,11 +109,22 @@ def build_function_context(prompt: str,
                     "parameters": {n: p.type for n, p in f.parameters.items()}})
         for f in functions
     )
+    # return (
+    #     "Choose exactly one function from the list.\n\n"
+    #     f"Available functions:\n{catalog}\n\n"
+    #     f"User request: {prompt}\n\n"
+    #     "Function call as JSON:\n"
+    #     '{"name": "'
+    # )
     return (
-        "Choose exactly one function from the list.\n\n"
-        f"Available functions:\n{catalog}\n\n"
-        f"User request: {prompt}\n\n"
-        "Function call as JSON:\n"
+        "<|im_start|>system\n"
+        "You translate user requests into function calls. "
+        "Choose exactly one function from the list and fill its parameters "
+        "with the exact values the function needs (e.g. real regex "
+        "patterns, real characters).\n\n"
+        f"Available functions:\n{catalog}<|im_end|>\n"
+        f"<|im_start|>user\n{prompt}<|im_end|>\n"
+        "<|im_start|>assistant\n<think>\n\n</think>\n\n"
         '{"name": "'
     )
 
