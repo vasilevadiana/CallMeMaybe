@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 
 import json
-from pydantic import BaseModel, Field, ValidationError
-from llm_sdk.llm_sdk import *
-from enum import Enum
+from pydantic import BaseModel, ValidationError
+from llm_sdk.llm_sdk import Small_LLM_Model
 import numpy as np
 import re
 from typing import Any
@@ -26,11 +25,11 @@ class FunctionDefinition(BaseModel):
 
 class FunctionCallResult(BaseModel):
     """One output entry: exactly prompt / name / parameters."""
- 
+
     prompt: str
     name: str
     parameters: dict[str, Any]
-            
+
 
 def get_function_defenitions(path: str) -> list[FunctionDefinition]:
     """Load function definitions from JSON file and validate"""
@@ -59,7 +58,7 @@ def get_function_calling_tests(path: str) -> list[FunctionCalling]:
     except FileNotFoundError:
         raise ValueError(f"Function calling tests file not found: {path}")
     except json.JSONDecodeError:
-        raise ValueError(f"Invalid JSON in function calling tests file: {path}")
+        raise ValueError("Invalid JSON in function calling tests file:", path)
     except OSError as exc:
         raise ValueError(f"Cannot read {path}: {exc}")
     if not isinstance(data, list):
@@ -91,22 +90,24 @@ def get_text_to_ids(id_to_text):
 
 
 def get_number_ids(id_to_text: dict[int, str]) -> set[int]:
-        """Ids of tokens made only of digits, '.' and '-'."""
-        return {i for i, t in id_to_text.items()
-                if all(c in "0123456789.-" for c in t)}
+    """Ids of tokens made only of digits, '.' and '-'."""
+    return {i for i, t in id_to_text.items()
+            if all(c in "0123456789.-" for c in t)}
 
 
 def get_string_ids(id_to_text: dict[int, str]) -> set[int]:
-    """Tokens that can be part of a string value (no quote, backslash, newline)."""
+    """Tokens that can be part of a string value
+    (no quote, backslash, newline)."""
     return {i for i, t in id_to_text.items() if not any(c in t for c in '\n')}
 
 
 def build_function_context(prompt: str,
                            functions: list[FunctionDefinition]) -> str:
     catalog = "\n".join(
-        json.dumps({"name": f.name, 
+        json.dumps({"name": f.name,
                     "description": f.description,
-                    "parameters": {n: p.type for n, p in f.parameters.items()}})
+                    "parameters": {n: p.type for n, p in f.parameters.items()}
+                    })
         for f in functions
     )
     # return (
@@ -146,14 +147,15 @@ def choose_token(logits: list[float], allowed: set[int], id_to_text) -> int:
         raise ValueError("No valid token is available.")
     scores = np.full(len(logits), -np.inf)
     scores[ids] = np.asarray(logits)[ids]
-    # test_________________________________________________________________
-    best = ids[np.argsort(scores[ids])[::-1][:5]]
+    # test______________________________
+    # best = ids[np.argsort(scores[ids])[::-1][:5]]
     # for token_id in best:
-        # print(repr(id_to_text[int(token_id)]), round(scores[token_id], 2))
+    # print(repr(id_to_text[int(token_id)]),
+    # round(scores[token_id], 2))
     return int(np.argmax(scores))
 
 
-def get_function_name(model: Small_LLM_Model, 
+def get_function_name(model: Small_LLM_Model,
                       input_ids: list[int],
                       functions: list[FunctionDefinition],
                       id_to_text: dict[int, str],
@@ -178,13 +180,15 @@ def get_function_name(model: Small_LLM_Model,
     raise ValueError(f"Model produced an invalid function name: {prefix}")
 
 
-def extract_numeric_param(prompt, model, input_ids, id_to_text, text_to_ids, number_ids, number_end_ids):
+def extract_numeric_param(model, input_ids,
+                          id_to_text, number_ids, number_end_ids):
     """ """
     prefix_re = r"-?(\d+(\.\d*)?)?"
     complete_re = r"-?\d+(\.\d+)?"
     number = ""
     for _ in range(100):
-        allowed = {i for i in number_ids if re.fullmatch(prefix_re, number + id_to_text[i])}
+        allowed = {i for i in number_ids
+                   if re.fullmatch(prefix_re, number + id_to_text[i])}
         if re.fullmatch(complete_re, number):
             allowed |= number_end_ids
         logits = model.get_logits_from_input_ids(input_ids)
@@ -198,7 +202,8 @@ def extract_numeric_param(prompt, model, input_ids, id_to_text, text_to_ids, num
     return float(number)
 
 
-def extract_string_param(function, model, input_ids, id_to_text, text_to_ids, string_ids, string_end_ids):
+def extract_string_param(model, input_ids,
+                         id_to_text, string_ids, string_end_ids):
     """ """
     allowed = string_ids | string_end_ids
     text = ""
@@ -223,24 +228,33 @@ def get_parameters(function: FunctionDefinition,
                    string_end_ids,
                    number_end_ids):
     params = {}
-    for index, (name, param_defenition) in enumerate(function.parameters.items()):
-        separator = "" if index == 0 else ", "
+    for i, (name, param_defenition) in enumerate(function.parameters.items()):
+        separator = "" if i == 0 else ", "
         key = f"{separator}{json.dumps(name)}: "
         if param_defenition.type == "string":
             input_ids += model.encode(key + '"')[0].tolist()
-            params[name] = extract_string_param(function, model, input_ids, id_to_text, text_to_ids, string_ids, string_end_ids)
+            params[name] = extract_string_param(model,
+                                                input_ids,
+                                                id_to_text,
+                                                string_ids,
+                                                string_end_ids)
             input_ids += model.encode('"')[0].tolist()
         elif param_defenition.type == "number":
             input_ids += model.encode(key)[0].tolist()
-            params[name] = extract_numeric_param(prompt, model, input_ids, id_to_text, text_to_ids, number_ids, number_end_ids)
+            params[name] = extract_numeric_param(model,
+                                                 input_ids,
+                                                 id_to_text,
+                                                 number_ids,
+                                                 number_end_ids)
         # print("__________")
     return params
 
 
 def test_llm():
-    print("############################################## FUNC_NAME TEST #################################################")
-    functions = get_function_defenitions("data/input/functions_definition.json")
-    prompts = get_function_calling_tests("data/input/function_calling_tests.json")
+    functions = get_function_defenitions(
+        "data/input/functions_definition.json")
+    prompts = get_function_calling_tests(
+        "data/input/function_calling_tests.json")
 
     model = Small_LLM_Model()
 
@@ -252,11 +266,10 @@ def test_llm():
     number_ids = get_number_ids(id_to_text)
     string_ids = get_string_ids(id_to_text)
 
-
     def get_end_ids(texts: list[str], text_to_ids) -> set[int]:
         """Ids of the tokens that close a value."""
         return {i for t in texts for i in text_to_ids.get(t, [])}
-    
+
     STRING_END = ['"', '",', '"}', '"}}', '",\n', '"\n']
     NUMBER_END = [",", "}", " }", "},", "}}", ",\n", "}\n"]
     string_end_ids = get_end_ids(STRING_END, text_to_ids)
@@ -267,11 +280,22 @@ def test_llm():
         # print("_______________")
         context = build_function_context(prompt.prompt, functions)
         input_ids = model.encode(context)[0].tolist()
-        function = get_function_name(model, input_ids, functions,
-                                    id_to_text, text_to_ids)
+        function = get_function_name(model,
+                                     input_ids,
+                                     functions,
+                                     id_to_text,
+                                     text_to_ids)
         print(f"{prompt.prompt} -> {function.name}")
         input_ids += model.encode(', "parameters": {')[0].tolist()
-        params = get_parameters(function, model, input_ids, id_to_text, text_to_ids, number_ids, string_ids, prompt.prompt,
-                                string_end_ids, number_end_ids)
+        params = get_parameters(function,
+                                model,
+                                input_ids,
+                                id_to_text,
+                                text_to_ids,
+                                number_ids,
+                                string_ids,
+                                prompt.prompt,
+                                string_end_ids,
+                                number_end_ids)
         print(params)
-        print("___________________________________________________________________")
+        print("________________________")

@@ -3,6 +3,7 @@ GOINFRE := /goinfre/$(USER)
 export UV_CACHE_DIR := $(GOINFRE)/.cache/uv
 export UV_PROJECT_ENVIRONMENT := $(GOINFRE)/.venvs/callmemaybe
 export HF_HOME := $(GOINFRE)/.cache/huggingface
+export MYPY_CACHE_DIR := $(GOINFRE)/.cache/mypy
 export TMPDIR := $(GOINFRE)/tmp
 $(shell mkdir -p $(TMPDIR))
 
@@ -15,7 +16,7 @@ run:
 	uv run python -m src
 
 debug:
-	uv run python -m pdb main.py
+	uv run python -m pdb src
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +
