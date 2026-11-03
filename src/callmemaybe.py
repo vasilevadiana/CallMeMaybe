@@ -6,6 +6,7 @@ from llm_sdk.llm_sdk import Small_LLM_Model
 import numpy as np
 import re
 from typing import Any
+from pathlib import Path
 
 
 class FunctionCalling(BaseModel):
@@ -110,13 +111,6 @@ def build_function_context(prompt: str,
                     })
         for f in functions
     )
-    # return (
-    #     "Choose exactly one function from the list.\n\n"
-    #     f"Available functions:\n{catalog}\n\n"
-    #     f"User request: {prompt}\n\n"
-    #     "Function call as JSON:\n"
-    #     '{"name": "'
-    # )
     return (
         "<|im_start|>system\n"
         "You translate user requests into function calls. "
@@ -149,11 +143,6 @@ def choose_token(logits: list[float], allowed: set[int]) -> int:
         raise ValueError("No valid token is available.")
     scores = np.full(len(logits), -np.inf)
     scores[ids] = np.asarray(logits)[ids]
-    # test______________________________
-    # best = ids[np.argsort(scores[ids])[::-1][:5]]
-    # for token_id in best:
-    # print(repr(id_to_text[int(token_id)]),
-    # round(scores[token_id], 2))
     return int(np.argmax(scores))
 
 
@@ -252,8 +241,18 @@ def get_parameters(function: FunctionDefinition,
                                                  id_to_text,
                                                  number_ids,
                                                  number_end_ids)
-        # print("__________")
     return params
+
+
+def save_function_calls(path: str, results: list[FunctionCallResult]) -> None:
+    """Write function call results to JSON file"""
+    try:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump([result.model_dump() for result in results], file,
+                      indent=2, ensure_ascii=False)
+    except OSError as exc:
+        raise ValueError(f"Cannot write {path}: {exc}")
 
 
 def test_llm() -> None:
@@ -282,9 +281,9 @@ def test_llm() -> None:
     string_end_ids = get_end_ids(STRING_END, text_to_ids)
     number_end_ids = get_end_ids(NUMBER_END, text_to_ids)
 
+    results: list[FunctionCallResult] = []
+
     for prompt in prompts:
-        # print(f"{prompt.prompt}")
-        # print("_______________")
         context = build_function_context(prompt.prompt, functions)
         input_ids = model.encode(context)[0].tolist()
         function = get_function_name(model,
@@ -292,7 +291,6 @@ def test_llm() -> None:
                                      functions,
                                      id_to_text,
                                      text_to_ids)
-        print(f"{prompt.prompt} -> {function.name}")
         input_ids += model.encode(', "parameters": {')[0].tolist()
         params = get_parameters(function,
                                 model,
@@ -302,5 +300,8 @@ def test_llm() -> None:
                                 string_ids,
                                 string_end_ids,
                                 number_end_ids)
-        print(params)
-        print("________________________")
+        results.append(FunctionCallResult(prompt=prompt.prompt,
+                                          name=function.name,
+                                          parameters=params))
+
+    save_function_calls("data/output/function_calls.json", results)
