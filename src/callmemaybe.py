@@ -10,14 +10,20 @@ from pathlib import Path
 
 
 class FunctionCalling(BaseModel):
+    """One input entry: a user prompt to turn into a function call."""
+
     prompt: str
 
 
 class ParameterDefinition(BaseModel):
+    """Type of a function parameter ("string" or "number")."""
+
     type: str
 
 
 class FunctionDefinition(BaseModel):
+    """A callable function: name, description, parameters and returns."""
+
     name: str
     description: str
     parameters: dict[str, ParameterDefinition]
@@ -33,7 +39,11 @@ class FunctionCallResult(BaseModel):
 
 
 def get_function_defenitions(path: str) -> list[FunctionDefinition]:
-    """Load function definitions from JSON file and validate"""
+    """Load function definitions from a JSON file and validate them.
+
+    Raises ValueError if the file is missing, unreadable, not valid JSON,
+    not a JSON array, or contains an invalid definition.
+    """
     try:
         with open(path, "r", encoding="utf-8") as file:
             data = json.load(file)
@@ -52,7 +62,11 @@ def get_function_defenitions(path: str) -> list[FunctionDefinition]:
 
 
 def get_function_calling_tests(path: str) -> list[FunctionCalling]:
-    """Load function calling tests from JSON file and validate"""
+    """Load function calling prompts from a JSON file and validate them.
+
+    Raises ValueError if the file is missing, unreadable, not valid JSON,
+    not a JSON array, or contains an invalid prompt entry.
+    """
     try:
         with open(path, "r", encoding="utf-8") as file:
             data = json.load(file)
@@ -72,7 +86,11 @@ def get_function_calling_tests(path: str) -> list[FunctionCalling]:
 
 def decode_vocabulary(model: Small_LLM_Model,
                       vocabulary: dict[str, int]) -> dict[int, str]:
-    """Map each token id to its real text using the SDK's decode."""
+    """Map each token id to its real text using the SDK's decode.
+
+    Tokens that decode to an empty string or to a partial UTF-8 sequence
+    (containing U+FFFD) are skipped.
+    """
     id_to_text: dict[int, str] = {}
     for token_id in vocabulary.values():
         text = model.decode([token_id])
@@ -82,6 +100,7 @@ def decode_vocabulary(model: Small_LLM_Model,
 
 
 def get_text_to_ids(id_to_text: dict[int, str]) -> dict[str, list[int]]:
+    """Invert id_to_text: map each token text to all ids that produce it."""
     text_to_ids: dict[str, list[int]] = {}
     for token_id, text in id_to_text.items():
         if text not in text_to_ids:
@@ -97,13 +116,17 @@ def get_number_ids(id_to_text: dict[int, str]) -> set[int]:
 
 
 def get_string_ids(id_to_text: dict[int, str]) -> set[int]:
-    """Tokens that can be part of a string value
-    (no quote, backslash, newline)."""
+    """Ids of tokens that can be part of a string value (no newline)."""
     return {i for i, t in id_to_text.items() if not any(c in t for c in '\n')}
 
 
 def build_function_context(prompt: str,
                            functions: list[FunctionDefinition]) -> str:
+    """Build the chat prompt listing the functions and the user request.
+
+    The prompt ends with '{"name": "' so the model's next tokens are the
+    function name.
+    """
     catalog = "\n".join(
         json.dumps({"name": f.name,
                     "description": f.description,
@@ -127,6 +150,7 @@ def build_function_context(prompt: str,
 def allowed_choice_tokens(prefix: str,
                           choices: list[str],
                           text_to_ids: dict[str, list[int]]) -> set[int]:
+    """Ids of tokens that continue prefix towards one of the choices."""
     allowed: set[int] = set()
     for choice in choices:
         if choice.startswith(prefix):
@@ -137,6 +161,10 @@ def allowed_choice_tokens(prefix: str,
 
 
 def choose_token(logits: list[float], allowed: set[int]) -> int:
+    """Return the allowed token id with the highest logit.
+
+    Raises ValueError if no allowed id is within the logits range.
+    """
     ids = np.array(list(allowed), dtype=np.int64)
     ids = ids[(ids >= 0) & (ids < len(logits))]
     if ids.size == 0:
@@ -151,7 +179,11 @@ def get_function_name(model: Small_LLM_Model,
                       functions: list[FunctionDefinition],
                       id_to_text: dict[int, str],
                       text_to_ids: dict[str, list[int]]) -> FunctionDefinition:
-    """LLM chooses the function"""
+    """Let the LLM choose a function, restricted to the defined names.
+
+    Raises ValueError if no function is available or the
+    generated name does not match any function.
+    """
     if not functions:
         raise ValueError("No functions available.")
     names = [f.name + '"' for f in functions]
@@ -176,7 +208,13 @@ def extract_numeric_param(model: Small_LLM_Model,
                           id_to_text: dict[int, str],
                           number_ids: set[int],
                           number_end_ids: set[int]) -> float:
-    """ """
+    """Generate a number value with the LLM, one token at a time.
+
+    Only tokens keeping the text a valid number prefix are allowed; an
+    end token is allowed once the number is complete. Generated digits
+    are appended to input_ids, the end token is not. Raises ValueError
+    if the result is not a valid number.
+    """
     prefix_re = r"-?(\d+(\.\d*)?)?"
     complete_re = r"-?\d+(\.\d+)?"
     number = ""
@@ -201,7 +239,11 @@ def extract_string_param(model: Small_LLM_Model,
                          id_to_text: dict[int, str],
                          string_ids: set[int],
                          string_end_ids: set[int]) -> str:
-    """ """
+    """Generate a string value with the LLM until a closing-quote token.
+
+    Generated tokens are appended to input_ids, the end token is not.
+    Generation stops after 100 tokens at most.
+    """
     allowed = string_ids | string_end_ids
     text = ""
     for _ in range(100):
@@ -222,6 +264,10 @@ def get_parameters(function: FunctionDefinition,
                    string_ids: set[int],
                    string_end_ids: set[int],
                    number_end_ids: set[int]) -> dict[str, Any]:
+    """Generate a value for each parameter of function, by its type.
+
+    The JSON key of each parameter is fed to the model before its value.
+    """
     params: dict[str, Any] = {}
     for i, (name, param_defenition) in enumerate(function.parameters.items()):
         separator = "" if i == 0 else ", "
@@ -245,7 +291,11 @@ def get_parameters(function: FunctionDefinition,
 
 
 def save_function_calls(path: str, results: list[FunctionCallResult]) -> None:
-    """Write function call results to JSON file"""
+    """Write function call results to a JSON file.
+
+    Parent directories are created if needed. Raises ValueError if the
+    file cannot be written.
+    """
     try:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as file:
@@ -256,6 +306,12 @@ def save_function_calls(path: str, results: list[FunctionCallResult]) -> None:
 
 
 def test_llm() -> None:
+    """Run every test prompt through the model and save the results.
+
+    Reads data/input/functions_definition.json and
+    data/input/function_calling_tests.json, writes
+    data/output/function_calls.json.
+    """
     functions = get_function_defenitions(
         "data/input/functions_definition.json")
     prompts = get_function_calling_tests(
