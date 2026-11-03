@@ -80,7 +80,7 @@ def decode_vocabulary(model: Small_LLM_Model,
     return id_to_text
 
 
-def get_text_to_ids(id_to_text):
+def get_text_to_ids(id_to_text: dict[int, str]) -> dict[str, list[int]]:
     text_to_ids: dict[str, list[int]] = {}
     for token_id, text in id_to_text.items():
         if text not in text_to_ids:
@@ -130,7 +130,9 @@ def build_function_context(prompt: str,
     )
 
 
-def allowed_choice_tokens(prefix, choices, text_to_ids):
+def allowed_choice_tokens(prefix: str,
+                          choices: list[str],
+                          text_to_ids: dict[str, list[int]]) -> set[int]:
     allowed: set[int] = set()
     for choice in choices:
         if choice.startswith(prefix):
@@ -140,7 +142,7 @@ def allowed_choice_tokens(prefix, choices, text_to_ids):
     return allowed
 
 
-def choose_token(logits: list[float], allowed: set[int], id_to_text) -> int:
+def choose_token(logits: list[float], allowed: set[int]) -> int:
     ids = np.array(list(allowed), dtype=np.int64)
     ids = ids[(ids >= 0) & (ids < len(logits))]
     if ids.size == 0:
@@ -159,7 +161,7 @@ def get_function_name(model: Small_LLM_Model,
                       input_ids: list[int],
                       functions: list[FunctionDefinition],
                       id_to_text: dict[int, str],
-                      text_to_ids) -> FunctionDefinition:
+                      text_to_ids: dict[str, list[int]]) -> FunctionDefinition:
     """LLM chooses the function"""
     if not functions:
         raise ValueError("No functions available.")
@@ -171,7 +173,7 @@ def get_function_name(model: Small_LLM_Model,
             break
         allowed = allowed_choice_tokens(prefix, names, text_to_ids)
         logits = model.get_logits_from_input_ids(input_ids)
-        token_id = choose_token(logits, allowed, id_to_text)
+        token_id = choose_token(logits, allowed)
         input_ids.append(token_id)
         prefix += id_to_text[token_id]
     for function in functions:
@@ -180,8 +182,11 @@ def get_function_name(model: Small_LLM_Model,
     raise ValueError(f"Model produced an invalid function name: {prefix}")
 
 
-def extract_numeric_param(model, input_ids,
-                          id_to_text, number_ids, number_end_ids):
+def extract_numeric_param(model: Small_LLM_Model,
+                          input_ids: list[int],
+                          id_to_text: dict[int, str],
+                          number_ids: set[int],
+                          number_end_ids: set[int]) -> float:
     """ """
     prefix_re = r"-?(\d+(\.\d*)?)?"
     complete_re = r"-?\d+(\.\d+)?"
@@ -192,7 +197,7 @@ def extract_numeric_param(model, input_ids,
         if re.fullmatch(complete_re, number):
             allowed |= number_end_ids
         logits = model.get_logits_from_input_ids(input_ids)
-        token_id = choose_token(logits, allowed, id_to_text)
+        token_id = choose_token(logits, allowed)
         if token_id in number_end_ids:
             break
         input_ids.append(token_id)
@@ -202,14 +207,17 @@ def extract_numeric_param(model, input_ids,
     return float(number)
 
 
-def extract_string_param(model, input_ids,
-                         id_to_text, string_ids, string_end_ids):
+def extract_string_param(model: Small_LLM_Model,
+                         input_ids: list[int],
+                         id_to_text: dict[int, str],
+                         string_ids: set[int],
+                         string_end_ids: set[int]) -> str:
     """ """
     allowed = string_ids | string_end_ids
     text = ""
     for _ in range(100):
         logits = model.get_logits_from_input_ids(input_ids)
-        token_id = choose_token(logits, allowed, id_to_text)
+        token_id = choose_token(logits, allowed)
         if token_id in string_end_ids:
             break
         input_ids.append(token_id)
@@ -221,13 +229,11 @@ def get_parameters(function: FunctionDefinition,
                    model: Small_LLM_Model,
                    input_ids: list[int],
                    id_to_text: dict[int, str],
-                   text_to_ids,
-                   number_ids,
-                   string_ids,
-                   prompt,
-                   string_end_ids,
-                   number_end_ids):
-    params = {}
+                   number_ids: set[int],
+                   string_ids: set[int],
+                   string_end_ids: set[int],
+                   number_end_ids: set[int]) -> dict[str, Any]:
+    params: dict[str, Any] = {}
     for i, (name, param_defenition) in enumerate(function.parameters.items()):
         separator = "" if i == 0 else ", "
         key = f"{separator}{json.dumps(name)}: "
@@ -250,7 +256,7 @@ def get_parameters(function: FunctionDefinition,
     return params
 
 
-def test_llm():
+def test_llm() -> None:
     functions = get_function_defenitions(
         "data/input/functions_definition.json")
     prompts = get_function_calling_tests(
@@ -266,7 +272,8 @@ def test_llm():
     number_ids = get_number_ids(id_to_text)
     string_ids = get_string_ids(id_to_text)
 
-    def get_end_ids(texts: list[str], text_to_ids) -> set[int]:
+    def get_end_ids(texts: list[str],
+                    text_to_ids: dict[str, list[int]]) -> set[int]:
         """Ids of the tokens that close a value."""
         return {i for t in texts for i in text_to_ids.get(t, [])}
 
@@ -291,10 +298,8 @@ def test_llm():
                                 model,
                                 input_ids,
                                 id_to_text,
-                                text_to_ids,
                                 number_ids,
                                 string_ids,
-                                prompt.prompt,
                                 string_end_ids,
                                 number_end_ids)
         print(params)
