@@ -306,17 +306,16 @@ def save_function_calls(path: str, results: list[FunctionCallResult]) -> None:
         raise ValueError(f"Cannot write {path}: {exc}")
 
 
-def test_llm() -> None:
+def test_llm(functions_definition: str,
+             input_file: str,
+             output_file: str) -> None:
     """Run every test prompt through the model and save the results.
 
-    Reads data/input/functions_definition.json and
-    data/input/function_calling_tests.json, writes
-    data/output/function_calling_results.json.
+    Reads function definitions and prompts from the provided files and saves
+    results to the provided output file.
     """
-    functions = get_function_definitions(
-        "data/input/functions_definition.json")
-    prompts = get_function_calling_tests(
-        "data/input/function_calling_tests.json")
+    functions = get_function_definitions(functions_definition)
+    prompts = get_function_calling_tests(input_file)
 
     model = Small_LLM_Model()
 
@@ -361,4 +360,4 @@ def test_llm() -> None:
                                           name=function.name,
                                           parameters=params))
 
-    save_function_calls("data/output/function_calling_results.json", results)
+    save_function_calls(output_file, results)
