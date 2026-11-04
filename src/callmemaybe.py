@@ -208,7 +208,8 @@ def extract_numeric_param(model: Small_LLM_Model,
                           input_ids: list[int],
                           id_to_text: dict[int, str],
                           number_ids: set[int],
-                          number_end_ids: set[int]) -> float:
+                          number_end_ids: set[int],
+                          type: str) -> float:
     """Generate a number value with the LLM, one token at a time.
 
     Only tokens keeping the text a valid number prefix are allowed; an
@@ -216,8 +217,12 @@ def extract_numeric_param(model: Small_LLM_Model,
     are appended to input_ids, the end token is not. Raises ValueError
     if the result is not a valid number.
     """
-    prefix_re = r"-?(\d+(\.\d*)?)?"
-    complete_re = r"-?\d+(\.\d+)?"
+    if type == "integer":
+        prefix_re = r"-?(\d+)?"
+        complete_re = r"-?\d+"
+    else:
+        prefix_re = r"-?(\d+(\.\d*)?)?"
+        complete_re = r"-?\d+(\.\d+)?"
     number = ""
     for _ in range(100):
         allowed = {i for i in number_ids
@@ -232,7 +237,10 @@ def extract_numeric_param(model: Small_LLM_Model,
         number += id_to_text[token_id]
     if not re.fullmatch(complete_re, number):
         raise ValueError(f"Invalid number generated: {number!r}")
-    return float(number)
+    if type == "integer":
+        return int(number)
+    else:
+        return float(number)
 
 
 def extract_string_param(model: Small_LLM_Model,
@@ -257,6 +265,14 @@ def extract_string_param(model: Small_LLM_Model,
     return text
 
 
+def extract_boolean_param(model: Small_LLM_Model,
+                          input_ids: list[int],
+                          id_to_text: dict[int, str],
+                          boolean_ids: set[int],
+                          boolean_end_ids: set[int]) -> bool:
+    return True
+
+
 def get_parameters(function: FunctionDefinition,
                    model: Small_LLM_Model,
                    input_ids: list[int],
@@ -264,7 +280,9 @@ def get_parameters(function: FunctionDefinition,
                    number_ids: set[int],
                    string_ids: set[int],
                    string_end_ids: set[int],
-                   number_end_ids: set[int]) -> dict[str, Any]:
+                   number_end_ids: set[int],
+                   boolean_ids: set[int],
+                   boolean_end_ids: set[int]) -> dict[str, Any]:
     """Generate a value for each parameter of function, by its type.
 
     The JSON key of each parameter is fed to the model before its value.
@@ -281,13 +299,21 @@ def get_parameters(function: FunctionDefinition,
                                                 string_ids,
                                                 string_end_ids)
             input_ids += model.encode('"')[0].tolist()
-        elif param_defenition.type == "number":
+        elif param_defenition.type == "number" or param_defenition.type == "integer":
             input_ids += model.encode(key)[0].tolist()
             params[name] = extract_numeric_param(model,
                                                  input_ids,
                                                  id_to_text,
                                                  number_ids,
-                                                 number_end_ids)
+                                                 number_end_ids,
+                                                 param_defenition.type)
+        elif param_defenition.type == "boolean":
+            input_ids += model.encode(key)[0].tolist()
+            params[name] = extract_boolean_param(model,
+                                                input_ids,
+                                                id_to_text,
+                                                boolean_ids,
+                                                boolean_end_ids)
     return params
 
 
@@ -326,6 +352,7 @@ def test_llm(functions_definition: str,
     text_to_ids = get_text_to_ids(id_to_text)
     number_ids = get_number_ids(id_to_text)
     string_ids = get_string_ids(id_to_text)
+    boolean_ids = {i for i, t in id_to_text.items() if t in ("true", "false")}
 
     def get_end_ids(texts: list[str],
                     text_to_ids: dict[str, list[int]]) -> set[int]:
@@ -336,6 +363,7 @@ def test_llm(functions_definition: str,
     NUMBER_END = [",", "}", " }", "},", "}}", ",\n", "}\n"]
     string_end_ids = get_end_ids(STRING_END, text_to_ids)
     number_end_ids = get_end_ids(NUMBER_END, text_to_ids)
+    boolean_end_ids = get_end_ids([",", "}"], text_to_ids)
 
     results: list[FunctionCallResult] = []
 
@@ -355,7 +383,9 @@ def test_llm(functions_definition: str,
                                 number_ids,
                                 string_ids,
                                 string_end_ids,
-                                number_end_ids)
+                                number_end_ids,
+                                boolean_ids,
+                                boolean_end_ids)
         results.append(FunctionCallResult(prompt=prompt.prompt,
                                           name=function.name,
                                           parameters=params))
