@@ -270,7 +270,26 @@ def extract_boolean_param(model: Small_LLM_Model,
                           id_to_text: dict[int, str],
                           boolean_ids: set[int],
                           boolean_end_ids: set[int]) -> bool:
-    return True
+    """Generate a boolean value with the LLM until a closing token.
+    
+    Generated tokens are appended to input_ids, the end token is not.
+    Generation stops after 100 tokens at most.
+    """
+    allowed = boolean_ids | boolean_end_ids
+    text = ""
+    for _ in range(100):
+        logits = model.get_logits_from_input_ids(input_ids)
+        token_id = choose_token(logits, allowed)
+        if token_id in boolean_end_ids:
+            break
+        input_ids.append(token_id)
+        text += id_to_text[token_id]
+    if text == "true":
+        return True
+    elif text == "false":
+        return False
+    else:
+        raise ValueError(f"Invalid boolean generated: {text!r}")
 
 
 def get_parameters(function: FunctionDefinition,
@@ -359,7 +378,7 @@ def test_llm(functions_definition: str,
         """Ids of the tokens that close a value."""
         return {i for t in texts for i in text_to_ids.get(t, [])}
 
-    STRING_END = ['"', '",', '"}', '"}}', '",\n', '"\n']
+    STRING_END = ['"', '",', '"}', '"}}', '",\n', '"\n', '\\']
     NUMBER_END = [",", "}", " }", "},", "}}", ",\n", "}\n"]
     string_end_ids = get_end_ids(STRING_END, text_to_ids)
     number_end_ids = get_end_ids(NUMBER_END, text_to_ids)
