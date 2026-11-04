@@ -118,7 +118,7 @@ def get_number_ids(id_to_text: dict[int, str]) -> set[int]:
 
 def get_string_ids(id_to_text: dict[int, str]) -> set[int]:
     """Ids of tokens that can be part of a string value (no newline)."""
-    return {i for i, t in id_to_text.items() if not any(c in t for c in '\n')}
+    return {i for i, t in id_to_text.items() if not any(c in t for c in ('\n', '"'))}
 
 
 def build_function_context(prompt: str,
@@ -379,7 +379,7 @@ def test_llm(functions_definition: str,
         return {i for t in texts for i in text_to_ids.get(t, [])}
 
     STRING_END = ['"', '",', '"}', '"}}', '",\n', '"\n', '\\']
-    NUMBER_END = [",", "}", " }", "},", "}}", ",\n", "}\n"]
+    NUMBER_END = [",", "}", "\n"]
     string_end_ids = get_end_ids(STRING_END, text_to_ids)
     number_end_ids = get_end_ids(NUMBER_END, text_to_ids)
     boolean_end_ids = get_end_ids([",", "}"], text_to_ids)
