@@ -38,7 +38,7 @@ class FunctionCallResult(BaseModel):
     parameters: dict[str, Any]
 
 
-def get_function_defenitions(path: str) -> list[FunctionDefinition]:
+def get_function_definitions(path: str) -> list[FunctionDefinition]:
     """Load function definitions from a JSON file and validate them.
 
     Raises ValueError if the file is missing, unreadable, not valid JSON,
@@ -73,7 +73,8 @@ def get_function_calling_tests(path: str) -> list[FunctionCalling]:
     except FileNotFoundError:
         raise ValueError(f"Function calling tests file not found: {path}")
     except json.JSONDecodeError:
-        raise ValueError("Invalid JSON in function calling tests file:", path)
+        raise ValueError(
+            f"Invalid JSON in function calling tests file: {path}")
     except OSError as exc:
         raise ValueError(f"Cannot read {path}: {exc}")
     if not isinstance(data, list):
@@ -310,9 +311,9 @@ def test_llm() -> None:
 
     Reads data/input/functions_definition.json and
     data/input/function_calling_tests.json, writes
-    data/output/function_calls.json.
+    data/output/function_calling_results.json.
     """
-    functions = get_function_defenitions(
+    functions = get_function_definitions(
         "data/input/functions_definition.json")
     prompts = get_function_calling_tests(
         "data/input/function_calling_tests.json")
@@ -360,4 +361,4 @@ def test_llm() -> None:
                                           name=function.name,
                                           parameters=params))
 
-    save_function_calls("data/output/function_calls.json", results)
+    save_function_calls("data/output/function_calling_results.json", results)
