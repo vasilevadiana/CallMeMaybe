@@ -209,7 +209,8 @@ def extract_numeric_param(model: Small_LLM_Model,
                           id_to_text: dict[int, str],
                           number_ids: set[int],
                           number_end_ids: set[int],
-                          type: str) -> float:
+                          type: str,
+                          max_num_generated_tokens: int) -> float:
     """Generate a number value with the LLM, one token at a time.
 
     Only tokens keeping the text a valid number prefix are allowed; an
@@ -224,7 +225,7 @@ def extract_numeric_param(model: Small_LLM_Model,
         prefix_re = r"-?(\d+(\.\d*)?)?"
         complete_re = r"-?\d+(\.\d+)?"
     number = ""
-    for _ in range(100):
+    for _ in range(max_num_generated_tokens):
         allowed = {i for i in number_ids
                    if re.fullmatch(prefix_re, number + id_to_text[i])}
         if re.fullmatch(complete_re, number):
@@ -247,7 +248,8 @@ def extract_string_param(model: Small_LLM_Model,
                          input_ids: list[int],
                          id_to_text: dict[int, str],
                          string_ids: set[int],
-                         string_end_ids: set[int]) -> str:
+                         string_end_ids: set[int],
+                         max_num_generated_tokens: int) -> str:
     """Generate a string value with the LLM until a closing-quote token.
 
     Generated tokens are appended to input_ids, the end token is not.
@@ -255,7 +257,7 @@ def extract_string_param(model: Small_LLM_Model,
     """
     allowed = string_ids | string_end_ids
     text = ""
-    for _ in range(100):
+    for _ in range(max_num_generated_tokens):
         logits = model.get_logits_from_input_ids(input_ids)
         token_id = choose_token(logits, allowed)
         if token_id in string_end_ids:
@@ -269,7 +271,8 @@ def extract_boolean_param(model: Small_LLM_Model,
                           input_ids: list[int],
                           id_to_text: dict[int, str],
                           boolean_ids: set[int],
-                          boolean_end_ids: set[int]) -> bool:
+                          boolean_end_ids: set[int],
+                          max_num_generated_tokens: int) -> bool:
     """Generate a boolean value with the LLM until a closing token.
     
     Generated tokens are appended to input_ids, the end token is not.
@@ -277,7 +280,7 @@ def extract_boolean_param(model: Small_LLM_Model,
     """
     allowed = boolean_ids | boolean_end_ids
     text = ""
-    for _ in range(100):
+    for _ in range(max_num_generated_tokens):
         logits = model.get_logits_from_input_ids(input_ids)
         token_id = choose_token(logits, allowed)
         if token_id in boolean_end_ids:
@@ -301,7 +304,8 @@ def get_parameters(function: FunctionDefinition,
                    string_end_ids: set[int],
                    number_end_ids: set[int],
                    boolean_ids: set[int],
-                   boolean_end_ids: set[int]) -> dict[str, Any]:
+                   boolean_end_ids: set[int],
+                   max_num_generated_tokens: int) -> dict[str, Any]:
     """Generate a value for each parameter of function, by its type.
 
     The JSON key of each parameter is fed to the model before its value.
@@ -316,7 +320,8 @@ def get_parameters(function: FunctionDefinition,
                                                 input_ids,
                                                 id_to_text,
                                                 string_ids,
-                                                string_end_ids)
+                                                string_end_ids,
+                                                max_num_generated_tokens)
             input_ids += model.encode('"')[0].tolist()
         elif param_defenition.type == "number" or param_defenition.type == "integer":
             input_ids += model.encode(key)[0].tolist()
@@ -325,14 +330,16 @@ def get_parameters(function: FunctionDefinition,
                                                  id_to_text,
                                                  number_ids,
                                                  number_end_ids,
-                                                 param_defenition.type)
+                                                 param_defenition.type,
+                                                 max_num_generated_tokens)
         elif param_defenition.type == "boolean":
             input_ids += model.encode(key)[0].tolist()
             params[name] = extract_boolean_param(model,
                                                 input_ids,
                                                 id_to_text,
                                                 boolean_ids,
-                                                boolean_end_ids)
+                                                boolean_end_ids,
+                                                max_num_generated_tokens)
     return params
 
 
@@ -395,6 +402,7 @@ def test_llm(functions_definition: str,
                                      id_to_text,
                                      text_to_ids)
         input_ids += model.encode(', "parameters": {')[0].tolist()
+        max_num_generated_tokens = len(prompt.prompt)
         params = get_parameters(function,
                                 model,
                                 input_ids,
@@ -404,7 +412,8 @@ def test_llm(functions_definition: str,
                                 string_end_ids,
                                 number_end_ids,
                                 boolean_ids,
-                                boolean_end_ids)
+                                boolean_end_ids,
+                                max_num_generated_tokens)
         results.append(FunctionCallResult(prompt=prompt.prompt,
                                           name=function.name,
                                           parameters=params))
