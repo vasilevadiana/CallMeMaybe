@@ -16,7 +16,7 @@ class FunctionCalling(BaseModel):
 
 
 class ParameterDefinition(BaseModel):
-    """Type of a function parameter ("string" or "number")."""
+    """Declared type of a parameter (string, number, integer, or boolean)."""
 
     type: str
 
@@ -117,7 +117,7 @@ def get_number_ids(id_to_text: dict[int, str]) -> set[int]:
 
 
 def get_string_ids(id_to_text: dict[int, str]) -> set[int]:
-    """Ids of tokens that can be part of a string value (no newline)."""
+    """Ids of tokens containing neither a newline nor a double quote."""
     return {i for i, t in id_to_text.items()
             if not any(c in t for c in ('\n', '"'))}
 
@@ -251,10 +251,10 @@ def extract_string_param(model: Small_LLM_Model,
                          string_ids: set[int],
                          string_end_ids: set[int],
                          max_num_generated_tokens: int) -> str:
-    """Generate a string value with the LLM until a closing-quote token.
+    """Generate a string value until a closing-quote token or the token limit.
 
     Generated tokens are appended to input_ids, the end token is not.
-    Generation stops after 100 tokens at most.
+    Generation stops after at most max_num_generated_tokens tokens.
     """
     allowed = string_ids | string_end_ids
     text = ""
@@ -274,10 +274,10 @@ def extract_boolean_param(model: Small_LLM_Model,
                           boolean_ids: set[int],
                           boolean_end_ids: set[int],
                           max_num_generated_tokens: int) -> bool:
-    """Generate a boolean value with the LLM until a closing token.
+    """Generate a boolean value until a closing token or the token limit.
 
     Generated tokens are appended to input_ids, the end token is not.
-    Generation stops after 100 tokens at most.
+    Generation stops after at most max_num_generated_tokens tokens.
     """
     allowed = boolean_ids | boolean_end_ids
     text = ""
@@ -307,9 +307,10 @@ def get_parameters(function: FunctionDefinition,
                    boolean_ids: set[int],
                    boolean_end_ids: set[int],
                    max_num_generated_tokens: int) -> dict[str, Any]:
-    """Generate a value for each parameter of function, by its type.
+    """Generate values for supported parameters of function, by their types.
 
-    The JSON key of each parameter is fed to the model before its value.
+    The JSON key of each supported parameter is fed to the model before its
+    value. Parameters with unsupported types are omitted.
     """
     params: dict[str, Any] = {}
     for i, (name, param_defenition) in enumerate(function.parameters.items()):
