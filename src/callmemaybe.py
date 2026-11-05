@@ -118,7 +118,8 @@ def get_number_ids(id_to_text: dict[int, str]) -> set[int]:
 
 def get_string_ids(id_to_text: dict[int, str]) -> set[int]:
     """Ids of tokens that can be part of a string value (no newline)."""
-    return {i for i, t in id_to_text.items() if not any(c in t for c in ('\n', '"'))}
+    return {i for i, t in id_to_text.items()
+            if not any(c in t for c in ('\n', '"'))}
 
 
 def build_function_context(prompt: str,
@@ -274,7 +275,7 @@ def extract_boolean_param(model: Small_LLM_Model,
                           boolean_end_ids: set[int],
                           max_num_generated_tokens: int) -> bool:
     """Generate a boolean value with the LLM until a closing token.
-    
+
     Generated tokens are appended to input_ids, the end token is not.
     Generation stops after 100 tokens at most.
     """
@@ -323,7 +324,8 @@ def get_parameters(function: FunctionDefinition,
                                                 string_end_ids,
                                                 max_num_generated_tokens)
             input_ids += model.encode('"')[0].tolist()
-        elif param_defenition.type == "number" or param_defenition.type == "integer":
+        elif param_defenition.type == "number"\
+                or param_defenition.type == "integer":
             input_ids += model.encode(key)[0].tolist()
             params[name] = extract_numeric_param(model,
                                                  input_ids,
@@ -335,11 +337,11 @@ def get_parameters(function: FunctionDefinition,
         elif param_defenition.type == "boolean":
             input_ids += model.encode(key)[0].tolist()
             params[name] = extract_boolean_param(model,
-                                                input_ids,
-                                                id_to_text,
-                                                boolean_ids,
-                                                boolean_end_ids,
-                                                max_num_generated_tokens)
+                                                 input_ids,
+                                                 id_to_text,
+                                                 boolean_ids,
+                                                 boolean_end_ids,
+                                                 max_num_generated_tokens)
     return params
 
 
